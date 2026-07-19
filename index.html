@@ -107,11 +107,9 @@ p.hero-sub{font-size:clamp(15px,1.3vw,18px);max-width:480px;color:rgba(25,23,21,
 .pip{width:6px;height:6px;border-radius:50%;background:var(--yellow);display:inline-block;animation:pip-breathe 3s ease-in-out infinite}
 @keyframes pip-breathe{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(0.7)}}
 
-/* Hero SVG */
+/* Hero Canvas */
 .hero-visual{position:relative;opacity:0;transform:translateY(40px)}
-.hero-visual svg{width:100%;height:auto;display:block;overflow:visible}
-.node-label{font-family:var(--mono);font-size:9px;letter-spacing:0.06em;text-transform:uppercase;fill:var(--ink);opacity:.5}
-.flow-line{fill:none;stroke:var(--line-strong);stroke-width:1.2;stroke-dasharray:4 5}
+#heroCanvas{width:100%;height:100%;display:block}
 
 /* ====== ABOUT ====== */
 .about-grid{display:grid;grid-template-columns:1.5fr 1fr;gap:80px;align-items:start}
@@ -297,28 +295,7 @@ footer>p{color:rgba(242,236,221,0.55);font-size:clamp(14px,1.2vw,16px);max-width
         </div>
       </div>
       <div class="hero-visual">
-        <svg viewBox="0 0 480 400" xmlns="http://www.w3.org/2000/svg">
-          <rect class="shape" x="40" y="30" width="120" height="120" fill="var(--blue)" opacity="0.92" data-speed="0.03"/>
-          <circle class="shape" cx="360" cy="80" r="62" fill="var(--yellow)" data-speed="0.02"/>
-          <path class="shape" d="M 250 250 L 340 250 L 295 330 Z" fill="var(--red)" data-speed="0.04"/>
-          <rect x="60" y="280" width="70" height="70" fill="none" stroke="var(--ink)" stroke-width="2" data-speed="0.025"/>
-          <path id="pipelinePath" class="flow-line" d="M 100 90 C 180 40, 260 40, 330 90 S 430 220, 340 280 S 160 340, 100 280 S 40 150, 100 90"/>
-          <g>
-            <circle cx="100" cy="90" r="5" fill="var(--ink)"/>
-            <text x="112" y="86" class="node-label">Input</text>
-            <circle cx="330" cy="90" r="5" fill="var(--ink)"/>
-            <text x="342" y="86" class="node-label">Analysis</text>
-            <circle cx="340" cy="280" r="5" fill="var(--ink)"/>
-            <text x="352" y="284" class="node-label">Personas</text>
-            <circle cx="100" cy="280" r="5" fill="var(--ink)"/>
-            <text x="-10" y="284" class="node-label" text-anchor="start">SEO</text>
-            <circle cx="215" cy="210" r="6" fill="var(--ink)"/>
-            <text x="228" y="214" class="node-label">Output</text>
-          </g>
-          <circle r="4" fill="var(--red)" class="flow-dot" opacity="0.8">
-            <animateMotion dur="7s" repeatCount="indefinite" path="M 100 90 C 180 40, 260 40, 330 90 S 430 220, 340 280 S 160 340, 100 280 S 40 150, 100 90"/>
-          </circle>
-        </svg>
+        <canvas id="heroCanvas"></canvas>
       </div>
     </div>
   </div>
@@ -933,6 +910,324 @@ document.addEventListener('dblclick',(e)=>{
 });
 
 /* ==========================================
+   GPU PARTICLE SIMULATION — Hero Canvas
+   FBO ping-pong, curl noise, instanced
+========================================== */
+(function(){
+"use strict";
+
+const hCanvas=document.getElementById('heroCanvas');
+if(!hCanvas)return;
+
+// Detect capability, set quality
+const ua=navigator.userAgent||'';
+const isMobile=/Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+const dpr=Math.min(window.devicePixelRatio||1,2);
+let PARTICLE_COUNT;
+if(isMobile){PARTICLE_COUNT=80000;}
+else if(dpr>1.5){PARTICLE_COUNT=150000;}
+else{PARTICLE_COUNT=200000;}
+
+const SIM_W=Math.ceil(Math.sqrt(PARTICLE_COUNT));
+const SIM_H=Math.ceil(PARTICLE_COUNT/SIM_W);
+const ACTUAL_COUNT=SIM_W*SIM_H;
+
+const gl=hCanvas.getContext('webgl2',{alpha:true,antialias:false,preserveDrawingBuffer:false,powerPreference:'high-performance'});
+if(!gl)return;
+gl.getExtension('EXT_color_buffer_float');
+
+function resizeHero(){
+  const w=hCanvas.clientWidth,h=hCanvas.clientHeight;
+  hCanvas.width=w*dpr;hCanvas.height=h*dpr;
+}
+resizeHero();
+
+// ---- Curl Noise GLSL ----
+const curlNoiseGLSL=`
+vec3 mod289(vec3 x){return x-floor(x*(1.0/289.0))*289.0;}
+vec4 mod289(vec4 x){return x-floor(x*(1.0/289.0))*289.0;}
+vec4 permute(vec4 x){return mod289(((x*34.0)+1.0)*x);}
+vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-0.85373472095314*r;}
+float snoise(vec3 v){
+  const vec2 C=vec2(1.0/6.0,1.0/3.0);const vec4 D=vec4(0.0,0.5,1.0,2.0);
+  vec3 i=floor(v+dot(v,C.yyy));vec3 x0=v-i+dot(i,C.xxx);
+  vec3 g=step(x0.yzx,x0.xyz);vec3 l=1.0-g;vec3 m1=min(g.xyz,l.zxy);vec3 m2=max(g.xyz,l.zxy);
+  vec3 e3=max(x0,m1);vec3 f3=min(x0,m2);
+  vec3 x1=normalize(e3-C.xxx);vec3 x2=normalize(m1-C.yyy);vec3 x3=normalize(m2-C.zzz);vec3 x4=normalize(f3-C.www);
+  vec3 p=vec3(dot(x1,x1),dot(x2,x2),dot(x3,x3));
+  vec4 rh=vec4(1.0/(p.x+1.0),1.0/(p.y+1.0),1.0/(p.z+1.0),1.0);
+  vec4 rhp=1.5-rh-2.0*vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3));
+  vec4 gx=rhp*rh;vec3 gy=m1*x0.yzx*x1.zxy;vec3 gz=m2*x0.yzx*x1.zxy;
+  vec3 g0=normalize(gx.xyz);vec3 g1=normalize(gy);vec3 g2=normalize(gz);vec3 g3=normalize(gx.www);
+  vec4 n0=vec4(dot(g0,x0),dot(g1,x1),dot(g2,x2),dot(g3,x3));
+  vec4 n1=vec4(dot(g0,x1),dot(g1,x2),dot(g2,x3),dot(g3,x4));
+  vec4 n2=vec4(dot(g0,x2),dot(g1,x3),dot(g2,x4),dot(g3,x4));
+  vec4 m0=max(vec4(0.0),1.0-n0*n0-n1*n1);vec4 m1v=max(vec4(0.0),1.0-n2*n2);
+  m0=m0*m0;m1v=m1v*m1v;
+  vec4 px=vec4(dot(g0,x0),dot(g1,x1),dot(g2,x2),dot(g3,x3));
+  vec4 py=vec4(dot(g0,x1),dot(g1,x2),dot(g2,x3),dot(g3,x4));
+  vec4 pz=vec4(dot(g0,x2),dot(g1,x3),dot(g2,x4),dot(g3,x4));
+  vec4 pw=vec4(dot(g0,x3),dot(g1,x4),dot(g2,x4),dot(g3,x4));
+  vec4 norm=taylorInvSqrt(vec4(dot(g0,g0),dot(g1,g1),dot(g2,g2),dot(g3,g3)));
+  g0*=norm.x;g1*=norm.y;g2*=norm.z;g3*=norm.w;
+  vec4 m2v=max(vec4(0.0),1.0-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)));
+  m2v=m2v*m2v;
+  return 42.0*dot(m2v*m2v,vec4(dot(g0,x0),dot(g1,x1),dot(g2,x2),dot(g3,x3)));
+}
+vec3 curlNoise(vec3 p){
+  float e=0.1;float n1,n2;vec3 c=vec3(0.0);
+  n1=snoise(p+vec3(0,e,0));n2=snoise(p-vec3(0,e,0));c.x=(n1-n2)/(2.0*e);
+  n1=snoise(p+vec3(0,0,e));n2=snoise(p-vec3(0,0,e));c.y=(n1-n2)/(2.0*e);
+  n1=snoise(p+vec3(e,0,0));n2=snoise(p-vec3(e,0,0));c.z=(n1-n2)/(2.0*e);
+  return normalize(c);
+}
+`;
+
+// ---- FBO Simulation ----
+function createFBO(data){
+  const tex=gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D,tex);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA32F,SIM_W,SIM_H,0,gl.RGBA,gl.FLOAT,data);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  const fb=gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,tex,0);
+  return{texture:tex,framebuffer:fb,width:SIM_W,height:SIM_H};
+}
+
+const pData=new Float32Array(ACTUAL_COUNT*4);
+const bMin=[-10,-6,-4],bMax=[10,6,4];
+for(let i=0;i<ACTUAL_COUNT;i++){
+  const i4=i*4;
+  pData[i4]=bMin[0]+Math.random()*(bMax[0]-bMin[0]);
+  pData[i4+1]=bMin[1]+Math.random()*(bMax[1]-bMin[1]);
+  pData[i4+2]=bMin[2]+Math.random()*(bMax[2]-bMin[2]);
+  pData[i4+3]=Math.random()*Math.PI*2;
+}
+const stateA=createFBO(pData);
+const stateB=createFBO(null);
+let readState=stateA,writeState=stateB;
+
+// ---- Simulation Shader ----
+const simProg=gl.createProgram();
+{
+  const vs=gl.createShader(gl.VERTEX_SHADER);
+  gl.shaderSource(vs,'attribute vec2 a_pos;varying vec2 v_uv;void main(){v_uv=a_pos*0.5+0.5;gl_Position=vec4(a_pos,0.0,1.0);}');
+  gl.compileShader(vs);
+  const fs=gl.createShader(gl.FRAGMENT_SHADER);
+  gl.shaderSource(fs,`#version 300 es
+precision highp float;
+in vec2 v_uv;
+uniform sampler2D u_state;
+uniform vec2 u_res;
+uniform float u_time;
+uniform float u_dt;
+uniform vec2 u_mouse;
+uniform float u_mouseActive;
+out vec4 fragColor;
+${curlNoiseGLSL}
+void main(){
+  vec4 prev=texture(u_state,v_uv);
+  vec3 pos=prev.xyz;
+  float phase=prev.w;
+  phase+=u_dt*0.3;
+  float depth=(pos.z-bMin[2])/(bMax[2]-bMin[2]);
+  float slow=0.15+depth*0.2;
+  vec3 curlPos=pos*0.25+vec3(u_time*slow*0.12,u_time*slow*0.08,u_time*slow*0.05);
+  vec3 field=curlNoise(curlPos)*0.5;
+  vec3 curl2=curlNoise(curlPos*2.3+100.0)*0.2;
+  vec3 curl3=curlNoise(curlPos*5.1+200.0)*0.08;
+  vec3 flow=field+curl2+curl3;
+  vec3 vel=flow*(0.2+depth*0.15);
+  if(u_mouseActive>0.5){
+    vec2 mp=u_mouse;
+    vec3 toMouse=vec3(mp-pos.xy*0.12,0.0);
+    float mDist=length(toMouse);
+    if(mDist<2.5){
+      float strength=smoothstep(2.5,0.0,mDist)*0.6;
+      vec3 perp=vec3(-toMouse.y,toMouse.x,0.0)*0.3;
+      vel+=normalize(toMouse+perp)*strength;
+    }
+  }
+  pos+=vel*u_dt;
+  if(pos.x>bMax[0]+1.0)pos.x=bMin[0]-0.5;
+  if(pos.x<bMin[0]-1.0)pos.x=bMax[0]+0.5;
+  if(pos.y>bMax[1]+1.0)pos.y=bMin[1]-0.5;
+  if(pos.y<bMin[1]-1.0)pos.y=bMax[1]+0.5;
+  if(pos.z>bMax[2]+1.0)pos.z=bMin[2]-0.5;
+  if(pos.z<bMin[2]-1.0)pos.z=bMax[2]+0.5;
+  fragColor=vec4(pos,phase);
+}`);
+  gl.compileShader(fs);
+  gl.attachShader(simProg,vs);gl.attachShader(simProg,fs);gl.linkProgram(simProg);
+}
+const simLoc={
+  a_pos:gl.getAttribLocation(simProg,'a_pos'),
+  u_state:gl.getUniformLocation(simProg,'u_state'),
+  u_res:gl.getUniformLocation(simProg,'u_res'),
+  u_time:gl.getUniformLocation(simProg,'u_time'),
+  u_dt:gl.getUniformLocation(simProg,'u_dt'),
+  u_mouse:gl.getUniformLocation(simProg,'u_mouse'),
+  u_mouseActive:gl.getUniformLocation(simProg,'u_mouseActive'),
+};
+
+// ---- Render Shader ----
+const renderProg=gl.createProgram();
+{
+  const vs=gl.createShader(gl.VERTEX_SHADER);
+  gl.shaderSource(vs,`#version 300 es
+precision highp float;
+layout(location=0)in float a_idx;
+uniform sampler2D u_state;
+uniform vec2 u_simRes;
+uniform vec2 u_canvasRes;
+uniform float u_time;
+uniform vec2 u_mouse;
+uniform float u_mouseActive;
+out float v_alpha;
+out float v_depth;
+void main(){
+  vec2 uv=vec2(mod(a_idx,u_simRes.x)+0.5,floor(a_idx/u_simRes.x)+0.5)/u_simRes;
+  vec4 d=texture(u_state,uv);
+  vec3 pos=d.xyz;
+  float phase=d.w;
+  float depth=(pos.z+4.0)/8.0;
+  vec3 mp=vec3(u_mouse*12.0/u_canvasRes*vec2(1.0,u_canvasRes.y/u_canvasRes.x)-vec2(6.0,3.0),0.0);
+  vec3 toM=mp-pos;
+  float mD=length(toM);
+  vec3 displacement=vec3(0.0);
+  if(u_mouseActive>0.5&&mD<3.0){
+    float str=smoothstep(3.0,0.0,mD)*0.6;
+    displacement=normalize(toM+vec3(-toM.y,toM.x,0.0)*0.5)*str;
+  }
+  pos+=displacement;
+  vec3 camPos=vec3(0.0,0.0,18.0);
+  vec4 mv=vec4(pos-camPos*0.0,1.0);
+  float perspective=14.0/(14.0+pos.z);
+  gl_Position=vec4(pos.xy*perspective*0.08,pos.z*0.001,1.0);
+  gl_PointSize=max(0.5,(1.2-depth*0.7)*dpr*perspective);
+  v_alpha=(0.15+depth*0.25+sin(phase)*0.05)*smoothstep(0.0,0.15,depth)*smoothstep(1.0,0.85,depth);
+  v_depth=depth;
+}
+`);
+  gl.compileShader(vs);
+  const fs=gl.createShader(gl.FRAGMENT_SHADER);
+  gl.shaderSource(fs,`#version 300 es
+precision highp float;
+in float v_alpha;
+in float v_depth;
+out vec4 fragColor;
+void main(){
+  vec2 pc=gl_PointCoord*2.0-1.0;
+  float r=dot(pc,pc);
+  if(r>1.0)discard;
+  float a=smoothstep(1.0,0.0,r)*v_alpha;
+  vec3 col=mix(vec3(0.92,0.90,0.86),vec3(0.98,0.97,0.95),v_depth);
+  fragColor=vec4(col,a);
+}
+`);
+  gl.compileShader(fs);
+  gl.attachShader(renderProg,vs);gl.attachShader(renderProg,fs);gl.linkProgram(renderProg);
+}
+const rLoc={
+  a_idx:gl.getAttribLocation(renderProg,'a_idx'),
+  u_state:gl.getUniformLocation(renderProg,'u_state'),
+  u_simRes:gl.getUniformLocation(renderProg,'u_simRes'),
+  u_canvasRes:gl.getUniformLocation(renderProg,'u_canvasRes'),
+  u_time:gl.getUniformLocation(renderProg,'u_time'),
+  u_mouse:gl.getUniformLocation(renderProg,'u_mouse'),
+  u_mouseActive:gl.getUniformLocation(renderProg,'u_mouseActive'),
+};
+
+// Fullscreen quad for simulation
+const quadBuf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,quadBuf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+
+// Instance index buffer for rendering
+const idxBuf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,idxBuf);
+const idxArr=new Float32Array(ACTUAL_COUNT);
+for(let i=0;i<ACTUAL_COUNT;i++)idxArr[i]=i;
+gl.bufferData(gl.ARRAY_BUFFER,idxArr,gl.STATIC_DRAW);
+
+// ---- Mouse tracking ----
+let hMX=0,hMY=0,hMA=0;
+hCanvas.addEventListener('mousemove',(e)=>{
+  const r=hCanvas.getBoundingClientRect();
+  hMX=(e.clientX-r.left)/r.width;
+  hMY=1.0-(e.clientY-r.top)/r.height;
+  hMA=1.0;
+});
+hCanvas.addEventListener('mouseleave',()=>{hMA=0.0;});
+document.addEventListener('mousemove',(e)=>{
+  const r=hCanvas.getBoundingClientRect();
+  if(e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom){
+    hMX=(e.clientX-r.left)/r.width;
+    hMY=1.0-(e.clientY-r.top)/r.height;
+    hMA=1.0;
+  }
+});
+
+// ---- Animation Loop ----
+let hTime=0,prevT=0;
+function animHero(t){
+  requestAnimationFrame(animHero);
+  const dt=Math.min((t-prevT)/1000,0.05);
+  prevT=t;hTime+=dt;
+
+  // Simulation pass
+  gl.viewport(0,0,SIM_W,SIM_H);
+  gl.useProgram(simProg);
+  gl.bindBuffer(gl.ARRAY_BUFFER,quadBuf);
+  gl.enableVertexAttribArray(simLoc.a_pos);
+  gl.vertexAttribPointer(simLoc.a_pos,2,gl.FLOAT,false,0,0);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D,readState.texture);
+  gl.uniform1i(simLoc.u_state,0);
+  gl.uniform2f(simLoc.u_res,SIM_W,SIM_H);
+  gl.uniform1f(simLoc.u_time,hTime);
+  gl.uniform1f(simLoc.u_dt,dt);
+  gl.uniform2f(simLoc.u_mouse,hMX,hMY);
+  gl.uniform1f(simLoc.u_mouseActive,hMA);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,writeState.framebuffer);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  const tmp=readState;readState=writeState;writeState=tmp;
+
+  // Render pass
+  gl.viewport(0,0,hCanvas.width,hCanvas.height);
+  gl.clearColor(0,0,0,0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA,gl.ONE);
+  gl.useProgram(renderProg);
+  gl.bindBuffer(gl.ARRAY_BUFFER,idxBuf);
+  gl.enableVertexAttribArray(rLoc.a_idx);
+  gl.vertexAttribPointer(rLoc.a_idx,1,gl.FLOAT,false,0,0);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D,readState.texture);
+  gl.uniform1i(rLoc.u_state,0);
+  gl.uniform2f(rLoc.u_simRes,SIM_W,SIM_H);
+  gl.uniform2f(rLoc.u_canvasRes,hCanvas.width,hCanvas.height);
+  gl.uniform1f(rLoc.u_time,hTime);
+  gl.uniform2f(rLoc.u_mouse,hMX,hMY);
+  gl.uniform1f(rLoc.u_mouseActive,hMA);
+  gl.drawArrays(gl.POINTS,0,ACTUAL_COUNT);
+  gl.disable(gl.BLEND);
+}
+requestAnimationFrame(animHero);
+
+window.addEventListener('resize',()=>{
+  resizeHero();
+});
+
+})();
+
+/* ==========================================
    AMBIENT GLOW FOLLOW MOUSE
 ========================================== */
 const glow=document.getElementById('ambientGlow');
@@ -1080,14 +1375,6 @@ function initAnimations(){
   gsap.utils.toArray('.section-divider').forEach(div=>{
     gsap.from(div,{scaleX:0,duration:1.8,ease:'expo.out',
       scrollTrigger:{trigger:div,start:'top 92%',toggleActions:'play none none none'}
-    });
-  });
-
-  // === SVG SHAPES PARALLAX ===
-  gsap.utils.toArray('.shape').forEach(shape=>{
-    const speed=parseFloat(shape.dataset.speed)||0.02;
-    gsap.to(shape,{y:-80*speed*10,ease:'none',
-      scrollTrigger:{trigger:'.hero',start:'top top',end:'bottom top',scrub:1}
     });
   });
 
