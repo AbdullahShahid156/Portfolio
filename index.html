@@ -128,22 +128,26 @@ p.hero-sub{font-size:clamp(15px,1.3vw,18px);max-width:480px;color:rgba(25,23,21,
 .fact-row .v{font-weight:600;text-align:right;font-size:13.5px}
 
 /* ====== SKILLS ====== */
-.skill-list{opacity:0;transform:translateY(50px)}
-.skill-category{margin-bottom:64px}
-.skill-category-head{display:flex;align-items:center;gap:16px;margin-bottom:28px}
-.swatch{width:10px;height:10px;flex-shrink:0;transition:all .5s var(--ease-expo)}
-.skill-category:hover .swatch{transform:scale(1.6);filter:drop-shadow(0 0 8px currentColor)}
+.skill-ecosystem{position:relative}
+.skill-list{position:relative;z-index:1;opacity:0;transform:translateY(40px)}
+.skill-groups{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--line)}
+@media(max-width:720px){.skill-groups{grid-template-columns:1fr}}
+.skill-card{border:1px solid var(--line);padding:28px 26px;background:var(--cream);transition:all .5s var(--ease-expo)}
+.skill-card:hover{background:var(--cream-2)}
+.skill-card-head{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+.swatch{width:12px;height:12px;flex-shrink:0;transition:all .5s var(--ease-expo)}
+.skill-card:hover .swatch{transform:scale(1.4);filter:drop-shadow(0 0 6px currentColor)}
 .swatch.red{background:var(--red);border-radius:50%}
 .swatch.blue{background:var(--blue)}
 .swatch.yellow{background:var(--yellow);transform:rotate(45deg)}
 .swatch.ink{background:var(--ink);border-radius:50%}
-.skill-category-head h3{font-family:var(--display);font-size:clamp(20px,2.5vw,26px);font-weight:600;letter-spacing:-0.015em}
-.skill-items{display:flex;flex-wrap:wrap;gap:10px}
-.skill-item{font-family:var(--mono);font-size:11px;padding:11px 20px;border:1px solid var(--line);color:rgba(25,23,21,0.75);cursor:none;transition:all .6s var(--ease-expo);position:relative;overflow:hidden}
-.skill-item::before{content:'';position:absolute;inset:0;background:var(--ink);transform:scaleY(0);transform-origin:bottom;transition:transform .6s var(--ease-expo);z-index:0}
-.skill-item:hover::before{transform:scaleY(1)}
-.skill-item:hover{color:var(--cream);border-color:var(--ink);transform:translateY(-3px)}
-.skill-item span{position:relative;z-index:1}
+.skill-card-head h3{font-family:var(--display);font-size:16px;font-weight:600;letter-spacing:-0.01em}
+.chip-row{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font-family:var(--mono);font-size:12px;padding:6px 14px;border:1px solid var(--line-strong);border-radius:20px;color:rgba(25,23,21,0.8);cursor:none;transition:all .5s var(--ease-expo);position:relative;overflow:hidden}
+.chip::before{content:'';position:absolute;inset:0;background:var(--ink);transform:scaleY(0);transform-origin:bottom;transition:transform .5s var(--ease-expo);z-index:0}
+.chip:hover::before{transform:scaleY(1)}
+.chip:hover{color:var(--cream);border-color:var(--ink);transform:translateY(-2px)}
+.chip span{position:relative;z-index:1}
 
 /* ====== WORK ====== */
 .work-entry{display:grid;grid-template-columns:0.4fr 1fr;gap:60px;padding:90px 0;border-bottom:1px solid var(--line);opacity:0;transform:translateY(70px)}
@@ -356,45 +360,78 @@ footer>p{color:rgba(242,236,221,0.55);font-size:clamp(14px,1.2vw,16px);max-width
       <span class="section-tag">02</span>
       <div style="flex:1"><h2 class="section-title">Skills</h2><div class="rule"></div></div>
     </div>
-    <div class="skill-list">
-      <div class="skill-category">
-        <div class="skill-category-head"><span class="swatch red"></span><h3>AI</h3></div>
-        <div class="skill-items">
-          <div class="skill-item"><span>ChatGPT</span></div>
-          <div class="skill-item"><span>Claude</span></div>
-          <div class="skill-item"><span>Gemini</span></div>
-          <div class="skill-item"><span>GitHub Copilot</span></div>
-          <div class="skill-item"><span>OpenCode AI</span></div>
-        </div>
-      </div>
-      <div class="skill-category">
-        <div class="skill-category-head"><span class="swatch blue"></span><h3>Frontend</h3></div>
-        <div class="skill-items">
-          <div class="skill-item"><span>Next.js</span></div>
-          <div class="skill-item"><span>React</span></div>
-          <div class="skill-item"><span>TypeScript</span></div>
-          <div class="skill-item"><span>Tailwind CSS</span></div>
-          <div class="skill-item"><span>Framer Motion</span></div>
-          <div class="skill-item"><span>shadcn/ui</span></div>
-        </div>
-      </div>
-      <div class="skill-category">
-        <div class="skill-category-head"><span class="swatch yellow"></span><h3>Backend</h3></div>
-        <div class="skill-items">
-          <div class="skill-item"><span>Node.js</span></div>
-          <div class="skill-item"><span>Prisma ORM</span></div>
-          <div class="skill-item"><span>PostgreSQL</span></div>
-        </div>
-      </div>
-      <div class="skill-category">
-        <div class="skill-category-head"><span class="swatch ink"></span><h3>Tools</h3></div>
-        <div class="skill-items">
-          <div class="skill-item"><span>Git</span></div>
-          <div class="skill-item"><span>GitHub</span></div>
-          <div class="skill-item"><span>Vercel</span></div>
-          <div class="skill-item"><span>Resend</span></div>
-          <div class="skill-item"><span>Vitest</span></div>
-          <div class="skill-item"><span>VS Code</span></div>
+    <div class="skill-ecosystem">
+      <div class="skill-list">
+        <div class="skill-groups">
+          <div class="skill-card">
+            <div class="skill-card-head"><span class="swatch red"></span><h3>AI & LLM Engineering</h3></div>
+            <div class="chip-row">
+              <div class="chip"><span>Google ADK</span></div>
+              <div class="chip"><span>Gemini API</span></div>
+              <div class="chip"><span>Google AI Studio</span></div>
+              <div class="chip"><span>Agentic AI Dev</span></div>
+              <div class="chip"><span>Prompt Engineering</span></div>
+              <div class="chip"><span>Context Engineering</span></div>
+              <div class="chip"><span>LLM Integration</span></div>
+              <div class="chip"><span>Tool Calling</span></div>
+              <div class="chip"><span>Structured Outputs</span></div>
+              <div class="chip"><span>ChatGPT</span></div>
+              <div class="chip"><span>Claude</span></div>
+              <div class="chip"><span>Gemini</span></div>
+              <div class="chip"><span>GitHub Copilot</span></div>
+              <div class="chip"><span>OpenCode AI</span></div>
+            </div>
+          </div>
+          <div class="skill-card">
+            <div class="skill-card-head"><span class="swatch blue"></span><h3>Frameworks & Data</h3></div>
+            <div class="chip-row">
+              <div class="chip"><span>FastAPI</span></div>
+              <div class="chip"><span>LangChain</span></div>
+              <div class="chip"><span>ASP.NET Core MVC</span></div>
+              <div class="chip"><span>Entity Framework Core</span></div>
+              <div class="chip"><span>REST APIs</span></div>
+              <div class="chip"><span>SQL Server</span></div>
+              <div class="chip"><span>Supabase</span></div>
+              <div class="chip"><span>MySQL</span></div>
+              <div class="chip"><span>Next.js</span></div>
+              <div class="chip"><span>React</span></div>
+              <div class="chip"><span>TypeScript</span></div>
+              <div class="chip"><span>Tailwind CSS</span></div>
+              <div class="chip"><span>Framer Motion</span></div>
+              <div class="chip"><span>shadcn/ui</span></div>
+              <div class="chip"><span>Node.js</span></div>
+              <div class="chip"><span>Prisma ORM</span></div>
+              <div class="chip"><span>PostgreSQL</span></div>
+            </div>
+          </div>
+          <div class="skill-card">
+            <div class="skill-card-head"><span class="swatch yellow"></span><h3>Languages</h3></div>
+            <div class="chip-row">
+              <div class="chip"><span>Python</span></div>
+              <div class="chip"><span>JavaScript</span></div>
+              <div class="chip"><span>C#</span></div>
+              <div class="chip"><span>Java</span></div>
+              <div class="chip"><span>C++</span></div>
+              <div class="chip"><span>SQL</span></div>
+              <div class="chip"><span>HTML5 / CSS3</span></div>
+            </div>
+          </div>
+          <div class="skill-card">
+            <div class="skill-card-head"><span class="swatch ink"></span><h3>Tools & Design</h3></div>
+            <div class="chip-row">
+              <div class="chip"><span>Git / GitHub</span></div>
+              <div class="chip"><span>Cursor AI</span></div>
+              <div class="chip"><span>OpenAI Codex</span></div>
+              <div class="chip"><span>Postman</span></div>
+              <div class="chip"><span>Adobe XD</span></div>
+              <div class="chip"><span>Wireframing</span></div>
+              <div class="chip"><span>Brand Identity</span></div>
+              <div class="chip"><span>Vercel</span></div>
+              <div class="chip"><span>Resend</span></div>
+              <div class="chip"><span>Vitest</span></div>
+              <div class="chip"><span>VS Code</span></div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -687,7 +724,7 @@ function updateCursor(){
 updateCursor();
 
 // Hover states
-const interactives='a, button, .skill-item, .stack-tag, .cert-exhibit, .btn, .nav-cta, .project-link, .magnetic';
+const interactives='a, button, .chip, .stack-tag, .cert-exhibit, .btn, .nav-cta, .project-link, .magnetic';
 document.querySelectorAll(interactives).forEach(el=>{
   el.addEventListener('mouseenter',()=>{isHovering=true;cursorOuter.classList.add('hover')});
   el.addEventListener('mouseleave',()=>{isHovering=false;cursorOuter.classList.remove('hover')});
