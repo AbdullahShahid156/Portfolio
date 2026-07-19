@@ -910,319 +910,263 @@ document.addEventListener('dblclick',(e)=>{
 });
 
 /* ==========================================
-   GPU PARTICLE SIMULATION — Hero Canvas
-   FBO ping-pong, curl noise, instanced
+   LIVING SILK MEMBRANE — Hero Canvas
+   GPU cloth simulation, noise deformation,
+   mouse interaction, scroll dissolve
 ========================================== */
 (function(){
 "use strict";
-
 const hCanvas=document.getElementById('heroCanvas');
 if(!hCanvas)return;
 
-// Detect capability, set quality
-const ua=navigator.userAgent||'';
-const isMobile=/Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(ua);
-const dpr=Math.min(window.devicePixelRatio||1,2);
-let PARTICLE_COUNT;
-if(isMobile){PARTICLE_COUNT=80000;}
-else if(dpr>1.5){PARTICLE_COUNT=150000;}
-else{PARTICLE_COUNT=200000;}
+const RES=180;
+const W=RES,H=RES;
+const COUNT=W*H;
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(50,2,0.1,100);
+camera.position.set(0,0,4.2);
+const renderer=new THREE.WebGLRenderer({canvas:hCanvas,alpha:true,antialias:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.setClearColor(0x000000,0);
 
-const SIM_W=Math.ceil(Math.sqrt(PARTICLE_COUNT));
-const SIM_H=Math.ceil(PARTICLE_COUNT/SIM_W);
-const ACTUAL_COUNT=SIM_W*SIM_H;
-
-const gl=hCanvas.getContext('webgl2',{alpha:true,antialias:false,preserveDrawingBuffer:false,powerPreference:'high-performance'});
-if(!gl)return;
-gl.getExtension('EXT_color_buffer_float');
-
-function resizeHero(){
-  const w=hCanvas.clientWidth,h=hCanvas.clientHeight;
-  hCanvas.width=w*dpr;hCanvas.height=h*dpr;
+// Mouse state
+let mX=0,mY=0,mSX=0,mSY=0,mActive=0;
+const heroEl=document.getElementById('hero');
+function onHeroMouse(e){
+  if(!heroEl)return;
+  const r=heroEl.getBoundingClientRect();
+  mX=((e.clientX-r.left)/r.width)*2-1;
+  mY=-((e.clientY-r.top)/r.height)*2+1;
+  mActive=1.0;
 }
-resizeHero();
+function onHeroLeave(){mActive=0.0;}
+heroEl&&heroEl.addEventListener('mousemove',onHeroMouse);
+heroEl&&heroEl.addEventListener('mouseleave',onHeroLeave);
 
-// ---- Curl Noise GLSL ----
-const curlNoiseGLSL=`
-vec3 mod289(vec3 x){return x-floor(x*(1.0/289.0))*289.0;}
-vec4 mod289(vec4 x){return x-floor(x*(1.0/289.0))*289.0;}
-vec4 permute(vec4 x){return mod289(((x*34.0)+1.0)*x);}
-vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-0.85373472095314*r;}
-float snoise(vec3 v){
-  const vec2 C=vec2(1.0/6.0,1.0/3.0);const vec4 D=vec4(0.0,0.5,1.0,2.0);
-  vec3 i=floor(v+dot(v,C.yyy));vec3 x0=v-i+dot(i,C.xxx);
-  vec3 g=step(x0.yzx,x0.xyz);vec3 l=1.0-g;vec3 m1=min(g.xyz,l.zxy);vec3 m2=max(g.xyz,l.zxy);
-  vec3 e3=max(x0,m1);vec3 f3=min(x0,m2);
-  vec3 x1=normalize(e3-C.xxx);vec3 x2=normalize(m1-C.yyy);vec3 x3=normalize(m2-C.zzz);vec3 x4=normalize(f3-C.www);
-  vec3 p=vec3(dot(x1,x1),dot(x2,x2),dot(x3,x3));
-  vec4 rh=vec4(1.0/(p.x+1.0),1.0/(p.y+1.0),1.0/(p.z+1.0),1.0);
-  vec4 rhp=1.5-rh-2.0*vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3));
-  vec4 gx=rhp*rh;vec3 gy=m1*x0.yzx*x1.zxy;vec3 gz=m2*x0.yzx*x1.zxy;
-  vec3 g0=normalize(gx.xyz);vec3 g1=normalize(gy);vec3 g2=normalize(gz);vec3 g3=normalize(gx.www);
-  vec4 n0=vec4(dot(g0,x0),dot(g1,x1),dot(g2,x2),dot(g3,x3));
-  vec4 n1=vec4(dot(g0,x1),dot(g1,x2),dot(g2,x3),dot(g3,x4));
-  vec4 n2=vec4(dot(g0,x2),dot(g1,x3),dot(g2,x4),dot(g3,x4));
-  vec4 m0=max(vec4(0.0),1.0-n0*n0-n1*n1);vec4 m1v=max(vec4(0.0),1.0-n2*n2);
-  m0=m0*m0;m1v=m1v*m1v;
-  vec4 px=vec4(dot(g0,x0),dot(g1,x1),dot(g2,x2),dot(g3,x3));
-  vec4 py=vec4(dot(g0,x1),dot(g1,x2),dot(g2,x3),dot(g3,x4));
-  vec4 pz=vec4(dot(g0,x2),dot(g1,x3),dot(g2,x4),dot(g3,x4));
-  vec4 pw=vec4(dot(g0,x3),dot(g1,x4),dot(g2,x4),dot(g3,x4));
-  vec4 norm=taylorInvSqrt(vec4(dot(g0,g0),dot(g1,g1),dot(g2,g2),dot(g3,g3)));
-  g0*=norm.x;g1*=norm.y;g2*=norm.z;g3*=norm.w;
-  vec4 m2v=max(vec4(0.0),1.0-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)));
-  m2v=m2v*m2v;
-  return 42.0*dot(m2v*m2v,vec4(dot(g0,x0),dot(g1,x1),dot(g2,x2),dot(g3,x3)));
-}
-vec3 curlNoise(vec3 p){
-  float e=0.1;float n1,n2;vec3 c=vec3(0.0);
-  n1=snoise(p+vec3(0,e,0));n2=snoise(p-vec3(0,e,0));c.x=(n1-n2)/(2.0*e);
-  n1=snoise(p+vec3(0,0,e));n2=snoise(p-vec3(0,0,e));c.y=(n1-n2)/(2.0*e);
-  n1=snoise(p+vec3(e,0,0));n2=snoise(p-vec3(e,0,0));c.z=(n1-n2)/(2.0*e);
-  return normalize(c);
-}
-`;
+// Scroll
+let sProgress=0,sTarget=0;
 
-// ---- FBO Simulation ----
-function createFBO(data){
-  const tex=gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D,tex);
-  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA32F,SIM_W,SIM_H,0,gl.RGBA,gl.FLOAT,data);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-  const fb=gl.createFramebuffer();
-  gl.bindFramebuffer(gl.FRAMEBUFFER,fb);
-  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,tex,0);
-  return{texture:tex,framebuffer:fb,width:SIM_W,height:SIM_H};
-}
+// Silk Shader
+const silkMat=new THREE.ShaderMaterial({
+  transparent:true,
+  side:THREE.DoubleSide,
+  depthWrite:false,
+  uniforms:{
+    uTime:{value:0},
+    uMouse:{value:new THREE.Vector2(0,0)},
+    uMouseActive:{value:0},
+    uScroll:{value:0},
+    uResolution:{value:new THREE.Vector2(1,1)},
+  },
+  vertexShader:`
+    uniform float uTime;
+    uniform vec2 uMouse;
+    uniform float uMouseActive;
+    uniform float uScroll;
+    varying vec2 vUv;
+    varying vec3 vNormal;
+    varying vec3 vWorldPos;
+    varying float vDisp;
+    varying float vEdge;
 
-const pData=new Float32Array(ACTUAL_COUNT*4);
-const bMin=[-10,-6,-4],bMax=[10,6,4];
-for(let i=0;i<ACTUAL_COUNT;i++){
-  const i4=i*4;
-  pData[i4]=bMin[0]+Math.random()*(bMax[0]-bMin[0]);
-  pData[i4+1]=bMin[1]+Math.random()*(bMax[1]-bMin[1]);
-  pData[i4+2]=bMin[2]+Math.random()*(bMax[2]-bMin[2]);
-  pData[i4+3]=Math.random()*Math.PI*2;
-}
-const stateA=createFBO(pData);
-const stateB=createFBO(null);
-let readState=stateA,writeState=stateB;
-
-// ---- Simulation Shader ----
-const simProg=gl.createProgram();
-{
-  const vs=gl.createShader(gl.VERTEX_SHADER);
-  gl.shaderSource(vs,'attribute vec2 a_pos;varying vec2 v_uv;void main(){v_uv=a_pos*0.5+0.5;gl_Position=vec4(a_pos,0.0,1.0);}');
-  gl.compileShader(vs);
-  const fs=gl.createShader(gl.FRAGMENT_SHADER);
-  gl.shaderSource(fs,`#version 300 es
-precision highp float;
-in vec2 v_uv;
-uniform sampler2D u_state;
-uniform vec2 u_res;
-uniform float u_time;
-uniform float u_dt;
-uniform vec2 u_mouse;
-uniform float u_mouseActive;
-out vec4 fragColor;
-${curlNoiseGLSL}
-void main(){
-  vec4 prev=texture(u_state,v_uv);
-  vec3 pos=prev.xyz;
-  float phase=prev.w;
-  phase+=u_dt*0.3;
-  float depth=(pos.z-bMin[2])/(bMax[2]-bMin[2]);
-  float slow=0.15+depth*0.2;
-  vec3 curlPos=pos*0.25+vec3(u_time*slow*0.12,u_time*slow*0.08,u_time*slow*0.05);
-  vec3 field=curlNoise(curlPos)*0.5;
-  vec3 curl2=curlNoise(curlPos*2.3+100.0)*0.2;
-  vec3 curl3=curlNoise(curlPos*5.1+200.0)*0.08;
-  vec3 flow=field+curl2+curl3;
-  vec3 vel=flow*(0.2+depth*0.15);
-  if(u_mouseActive>0.5){
-    vec2 mp=u_mouse;
-    vec3 toMouse=vec3(mp-pos.xy*0.12,0.0);
-    float mDist=length(toMouse);
-    if(mDist<2.5){
-      float strength=smoothstep(2.5,0.0,mDist)*0.6;
-      vec3 perp=vec3(-toMouse.y,toMouse.x,0.0)*0.3;
-      vel+=normalize(toMouse+perp)*strength;
+    // --- Simplex noise ---
+    vec3 mod289(vec3 x){return x-floor(x*(1.0/289.0))*289.0;}
+    vec4 mod289(vec4 x){return x-floor(x*(1.0/289.0))*289.0;}
+    vec4 permute(vec4 x){return mod289(((x*34.0)+1.0)*x);}
+    vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-0.85373472095314*r;}
+    float snoise(vec3 v){
+      const vec2 C=vec2(1.0/6.0,1.0/3.0);
+      vec3 i=floor(v+dot(v,C.yyy));
+      vec3 x0=v-i+dot(i,C.xxx);
+      vec3 g=step(x0.yzx,x0.xyz);
+      vec3 l=1.0-g;vec3 m1=min(g.xyz,l.zxy);vec3 m2=max(g.xyz,l.zxy);
+      vec3 e=max(x0,m1);vec3 f=min(x0,m2);
+      vec3 x1=normalize(e-C.xxx);vec3 x2=normalize(m1-C.yyy);
+      vec3 x3=normalize(m2-C.zzz);vec3 x4=normalize(f-C.www);
+      vec3 p=vec3(dot(x1,x1),dot(x2,x2),dot(x3,x3));
+      vec4 rh=vec4(1.0/(p.x+1.0),1.0/(p.y+1.0),1.0/(p.z+1.0),1.0);
+      vec4 rp=1.5-rh-2.0*vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3));
+      vec4 gx=rp*rh;
+      vec3 gy=m1*x0.yzx*x1.zxy;vec3 gz=m2*x0.yzx*x1.zxy;
+      vec3 g0=normalize(gx.xyz);vec3 g1=normalize(gy);vec3 g2=normalize(gz);vec3 g3=normalize(gx.www);
+      vec4 nb=vec4(dot(g0,x0),dot(g1,x1),dot(g2,x2),dot(g3,x3));
+      vec4 na=vec4(dot(g0,x1),dot(g1,x2),dot(g2,x3),dot(g3,x4));
+      vec4 nc=vec4(dot(g0,x2),dot(g1,x3),dot(g2,x4),dot(g3,x4));
+      vec4 m0=max(vec4(0.0),1.0-nb*nb-na*na);
+      vec4 m1v=max(vec4(0.0),1.0-nc*nc);
+      m0=m0*m0;m1v=m1v*m1v;
+      vec4 px=vec4(dot(g0,x0),dot(g1,x1),dot(g2,x2),dot(g3,x3));
+      vec4 py=vec4(dot(g0,x1),dot(g1,x2),dot(g2,x3),dot(g3,x4));
+      vec4 pz=vec4(dot(g0,x2),dot(g1,x3),dot(g2,x4),dot(g3,x4));
+      vec4 pw=vec4(dot(g0,x3),dot(g1,x4),dot(g2,x4),dot(g3,x4));
+      vec4 norm=taylorInvSqrt(vec4(dot(g0,g0),dot(g1,g1),dot(g2,g2),dot(g3,g3)));
+      g0*=norm.x;g1*=norm.y;g2*=norm.z;g3*=norm.w;
+      vec4 m2v=max(vec4(0.0),1.0-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)));
+      m2v=m2v*m2v;
+      return 42.0*dot(m2v*m2v,vec4(dot(g0,x0),dot(g1,x1),dot(g2,x2),dot(g3,x3)));
     }
-  }
-  pos+=vel*u_dt;
-  if(pos.x>bMax[0]+1.0)pos.x=bMin[0]-0.5;
-  if(pos.x<bMin[0]-1.0)pos.x=bMax[0]+0.5;
-  if(pos.y>bMax[1]+1.0)pos.y=bMin[1]-0.5;
-  if(pos.y<bMin[1]-1.0)pos.y=bMax[1]+0.5;
-  if(pos.z>bMax[2]+1.0)pos.z=bMin[2]-0.5;
-  if(pos.z<bMin[2]-1.0)pos.z=bMax[2]+0.5;
-  fragColor=vec4(pos,phase);
-}`);
-  gl.compileShader(fs);
-  gl.attachShader(simProg,vs);gl.attachShader(simProg,fs);gl.linkProgram(simProg);
-}
-const simLoc={
-  a_pos:gl.getAttribLocation(simProg,'a_pos'),
-  u_state:gl.getUniformLocation(simProg,'u_state'),
-  u_res:gl.getUniformLocation(simProg,'u_res'),
-  u_time:gl.getUniformLocation(simProg,'u_time'),
-  u_dt:gl.getUniformLocation(simProg,'u_dt'),
-  u_mouse:gl.getUniformLocation(simProg,'u_mouse'),
-  u_mouseActive:gl.getUniformLocation(simProg,'u_mouseActive'),
-};
 
-// ---- Render Shader ----
-const renderProg=gl.createProgram();
-{
-  const vs=gl.createShader(gl.VERTEX_SHADER);
-  gl.shaderSource(vs,`#version 300 es
-precision highp float;
-layout(location=0)in float a_idx;
-uniform sampler2D u_state;
-uniform vec2 u_simRes;
-uniform vec2 u_canvasRes;
-uniform float u_time;
-uniform vec2 u_mouse;
-uniform float u_mouseActive;
-out float v_alpha;
-out float v_depth;
-void main(){
-  vec2 uv=vec2(mod(a_idx,u_simRes.x)+0.5,floor(a_idx/u_simRes.x)+0.5)/u_simRes;
-  vec4 d=texture(u_state,uv);
-  vec3 pos=d.xyz;
-  float phase=d.w;
-  float depth=(pos.z+4.0)/8.0;
-  vec3 mp=vec3(u_mouse*12.0/u_canvasRes*vec2(1.0,u_canvasRes.y/u_canvasRes.x)-vec2(6.0,3.0),0.0);
-  vec3 toM=mp-pos;
-  float mD=length(toM);
-  vec3 displacement=vec3(0.0);
-  if(u_mouseActive>0.5&&mD<3.0){
-    float str=smoothstep(3.0,0.0,mD)*0.6;
-    displacement=normalize(toM+vec3(-toM.y,toM.x,0.0)*0.5)*str;
-  }
-  pos+=displacement;
-  vec3 camPos=vec3(0.0,0.0,18.0);
-  vec4 mv=vec4(pos-camPos*0.0,1.0);
-  float perspective=14.0/(14.0+pos.z);
-  gl_Position=vec4(pos.xy*perspective*0.08,pos.z*0.001,1.0);
-  gl_PointSize=max(0.5,(1.2-depth*0.7)*dpr*perspective);
-  v_alpha=(0.15+depth*0.25+sin(phase)*0.05)*smoothstep(0.0,0.15,depth)*smoothstep(1.0,0.85,depth);
-  v_depth=depth;
-}
-`);
-  gl.compileShader(vs);
-  const fs=gl.createShader(gl.FRAGMENT_SHADER);
-  gl.shaderSource(fs,`#version 300 es
-precision highp float;
-in float v_alpha;
-in float v_depth;
-out vec4 fragColor;
-void main(){
-  vec2 pc=gl_PointCoord*2.0-1.0;
-  float r=dot(pc,pc);
-  if(r>1.0)discard;
-  float a=smoothstep(1.0,0.0,r)*v_alpha;
-  vec3 col=mix(vec3(0.92,0.90,0.86),vec3(0.98,0.97,0.95),v_depth);
-  fragColor=vec4(col,a);
-}
-`);
-  gl.compileShader(fs);
-  gl.attachShader(renderProg,vs);gl.attachShader(renderProg,fs);gl.linkProgram(renderProg);
-}
-const rLoc={
-  a_idx:gl.getAttribLocation(renderProg,'a_idx'),
-  u_state:gl.getUniformLocation(renderProg,'u_state'),
-  u_simRes:gl.getUniformLocation(renderProg,'u_simRes'),
-  u_canvasRes:gl.getUniformLocation(renderProg,'u_canvasRes'),
-  u_time:gl.getUniformLocation(renderProg,'u_time'),
-  u_mouse:gl.getUniformLocation(renderProg,'u_mouse'),
-  u_mouseActive:gl.getUniformLocation(renderProg,'u_mouseActive'),
-};
+    void main(){
+      vUv=uv;
+      vec3 pos=position;
 
-// Fullscreen quad for simulation
-const quadBuf=gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER,quadBuf);
-gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+      // Layered noise displacement
+      float t=uTime*0.18;
+      float n1=snoise(vec3(pos.xy*1.2,t*0.7))*0.12;
+      float n2=snoise(vec3(pos.xy*2.8+50.0,t*1.1+100.0))*0.05;
+      float n3=snoise(vec3(pos.xy*6.0+100.0,t*1.6+200.0))*0.02;
+      float n4=snoise(vec3(pos.xy*12.0+200.0,t*2.2+300.0))*0.008;
+      float displacement=n1+n2+n3+n4;
 
-// Instance index buffer for rendering
-const idxBuf=gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER,idxBuf);
-const idxArr=new Float32Array(ACTUAL_COUNT);
-for(let i=0;i<ACTUAL_COUNT;i++)idxArr[i]=i;
-gl.bufferData(gl.ARRAY_BUFFER,idxArr,gl.STATIC_DRAW);
+      // Breathing
+      displacement+=sin(t*0.5+pos.x*0.8)*0.015;
+      displacement+=cos(t*0.35+pos.y*0.6)*0.012;
 
-// ---- Mouse tracking ----
-let hMX=0,hMY=0,hMA=0;
-hCanvas.addEventListener('mousemove',(e)=>{
-  const r=hCanvas.getBoundingClientRect();
-  hMX=(e.clientX-r.left)/r.width;
-  hMY=1.0-(e.clientY-r.top)/r.height;
-  hMA=1.0;
+      // Mouse interaction
+      float mDist=length(pos.xy-uMouse*2.5);
+      float mouseForce=0.0;
+      if(uMouseActive>0.5){
+        mouseForce=smoothstep(1.2,0.0,mDist)*0.35;
+        displacement+=mouseForce;
+      }
+
+      // Edge curl for silk fold effect
+      float edgeDist=length(pos.xy);
+      float edgeCurl=sin(edgeDist*3.0+t*0.4)*0.03*(1.0-smoothstep(0.0,1.8,edgeDist));
+      displacement+=edgeCurl;
+
+      pos.z+=displacement;
+      vDisp=displacement;
+
+      // Edge factor
+      vEdge=smoothstep(0.8,1.6,edgeDist);
+
+      // Normal estimation via cross products (approximate)
+      float eps=0.01;
+      float dx1=snoise(vec3((pos.xy+vec2(eps,0.0))*1.2,t*0.7))*0.12
+                +snoise(vec3((pos.xy+vec2(eps,0.0))*2.8+50.0,t*1.1+100.0))*0.05;
+      float dx2=snoise(vec3((pos.xy-vec2(eps,0.0))*1.2,t*0.7))*0.12
+                +snoise(vec3((pos.xy-vec2(eps,0.0))*2.8+50.0,t*1.1+100.0))*0.05;
+      float dy1=snoise(vec3((pos.xy+vec2(0.0,eps))*1.2,t*0.7))*0.12
+                +snoise(vec3((pos.xy+vec2(0.0,eps))*2.8+50.0,t*1.1+100.0))*0.05;
+      float dy2=snoise(vec3((pos.xy-vec2(0.0,eps))*1.2,t*0.7))*0.12
+                +snoise(vec3((pos.xy-vec2(0.0,eps))*2.8+50.0,t*1.1+100.0))*0.05;
+      vec3 tangent=normalize(vec3(eps*2.0,0.0,dx1-dx2));
+      vec3 bitangent=normalize(vec3(0.0,eps*2.0,dy1-dy2));
+      vNormal=normalize(cross(tangent,bitangent));
+
+      vWorldPos=(modelMatrix*vec4(pos,1.0)).xyz;
+      gl_Position=projectionMatrix*modelViewMatrix*vec4(pos,1.0);
+    }
+  `,
+  fragmentShader:`
+    uniform float uTime;
+    uniform float uScroll;
+    varying vec2 vUv;
+    varying vec3 vNormal;
+    varying vec3 vWorldPos;
+    varying float vDisp;
+    varying float vEdge;
+
+    void main(){
+      vec3 viewDir=normalize(cameraPosition-vWorldPos);
+      float fresnel=pow(1.0-abs(dot(viewDir,vNormal)),3.0);
+
+      // Base silk color — soft warm white
+      vec3 baseColor=vec3(0.96,0.95,0.93);
+
+      // Edge highlights — beautiful rim light
+      vec3 rimColor=vec3(1.0,0.99,0.97);
+      vec3 color=mix(baseColor,rimColor,fresnel*0.7);
+
+      // Subtle surface variation
+      float variation=sin(vUv.x*40.0+uTime*0.3)*sin(vUv.y*40.0-uTime*0.2)*0.02;
+      color+=variation;
+
+      // Micro fold highlights
+      float foldHighlight=smoothstep(0.08,0.12,abs(vDisp))*0.15;
+      color+=foldHighlight;
+
+      // Scroll dissolve — fade edges into ribbons
+      float dissolve=1.0;
+      if(uScroll>0.01){
+        float ribbonPattern=sin(vUv.x*15.0+vUv.y*3.0)*0.5+0.5;
+        ribbonPattern=smoothstep(0.3,0.7,ribbonPattern);
+        dissolve=mix(1.0,ribbonPattern,uScroll);
+        dissolve*=1.0-uScroll*0.6;
+      }
+
+      // Edge fade
+      float alpha=mix(0.35,0.0,vEdge)*dissolve;
+      alpha+=fresnel*0.25*dissolve;
+      alpha=clamp(alpha,0.0,0.7);
+
+      // Minimum visibility
+      alpha=max(alpha,0.04*dissolve);
+
+      gl_FragColor=vec4(color,alpha);
+    }
+  `
 });
-hCanvas.addEventListener('mouseleave',()=>{hMA=0.0;});
+
+// Cloth mesh
+const geo=new THREE.PlaneGeometry(3.8,2.4,RES-1,RES-1);
+const mesh=new THREE.Mesh(geo,silkMat);
+scene.add(mesh);
+
+// Soft ambient + directional lights
+scene.add(new THREE.AmbientLight(0xffffff,0.5));
+const dLight=new THREE.DirectionalLight(0xfff8f0,0.6);
+dLight.position.set(2,3,4);scene.add(dLight);
+const dLight2=new THREE.DirectionalLight(0xf0f0ff,0.3);
+dLight2.position.set(-2,1,3);scene.add(dLight2);
+
+// Animation
+const clock=new THREE.Clock();
+function animateSilk(){
+  requestAnimationFrame(animateSilk);
+  const t=clock.getElapsedTime();
+
+  // Smooth mouse
+  mSX+=(mX-mSX)*0.06;
+  mSY+=(mY-mSY)*0.06;
+
+  // Scroll
+  sTarget=window.scrollY/(document.body.scrollHeight-window.innerHeight);
+  sProgress+=(sTarget-sProgress)*0.04;
+
+  silkMat.uniforms.uTime.value=t;
+  silkMat.uniforms.uMouse.value.set(mSX,mSY);
+  silkMat.uniforms.uMouseActive.value=mActive;
+  silkMat.uniforms.uScroll.value=sProgress;
+
+  // Gentle breathing on whole mesh
+  mesh.rotation.x=Math.sin(t*0.15)*0.015+sProgress*0.3;
+  mesh.rotation.y=Math.cos(t*0.12)*0.01;
+  mesh.position.y=Math.sin(t*0.2)*0.03;
+
+  // Dissolve offset
+  mesh.position.z=-sProgress*1.5;
+
+  renderer.render(scene,camera);
+}
+animateSilk();
+
+function resizeSilk(){
+  const w=hCanvas.clientWidth,h=hCanvas.clientHeight;
+  renderer.setSize(w,h);
+  camera.aspect=w/h;
+  camera.updateProjectionMatrix();
+  silkMat.uniforms.uResolution.value.set(w,h);
+}
+resizeSilk();
+window.addEventListener('resize',resizeSilk);
+
+// Fade mouse influence when leaving hero
 document.addEventListener('mousemove',(e)=>{
-  const r=hCanvas.getBoundingClientRect();
-  if(e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom){
-    hMX=(e.clientX-r.left)/r.width;
-    hMY=1.0-(e.clientY-r.top)/r.height;
-    hMA=1.0;
-  }
-});
-
-// ---- Animation Loop ----
-let hTime=0,prevT=0;
-function animHero(t){
-  requestAnimationFrame(animHero);
-  const dt=Math.min((t-prevT)/1000,0.05);
-  prevT=t;hTime+=dt;
-
-  // Simulation pass
-  gl.viewport(0,0,SIM_W,SIM_H);
-  gl.useProgram(simProg);
-  gl.bindBuffer(gl.ARRAY_BUFFER,quadBuf);
-  gl.enableVertexAttribArray(simLoc.a_pos);
-  gl.vertexAttribPointer(simLoc.a_pos,2,gl.FLOAT,false,0,0);
-  gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D,readState.texture);
-  gl.uniform1i(simLoc.u_state,0);
-  gl.uniform2f(simLoc.u_res,SIM_W,SIM_H);
-  gl.uniform1f(simLoc.u_time,hTime);
-  gl.uniform1f(simLoc.u_dt,dt);
-  gl.uniform2f(simLoc.u_mouse,hMX,hMY);
-  gl.uniform1f(simLoc.u_mouseActive,hMA);
-  gl.bindFramebuffer(gl.FRAMEBUFFER,writeState.framebuffer);
-  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
-  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
-  const tmp=readState;readState=writeState;writeState=tmp;
-
-  // Render pass
-  gl.viewport(0,0,hCanvas.width,hCanvas.height);
-  gl.clearColor(0,0,0,0);
-  gl.clear(gl.COLOR_BUFFER_BIT);
-  gl.enable(gl.BLEND);
-  gl.blendFunc(gl.SRC_ALPHA,gl.ONE);
-  gl.useProgram(renderProg);
-  gl.bindBuffer(gl.ARRAY_BUFFER,idxBuf);
-  gl.enableVertexAttribArray(rLoc.a_idx);
-  gl.vertexAttribPointer(rLoc.a_idx,1,gl.FLOAT,false,0,0);
-  gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D,readState.texture);
-  gl.uniform1i(rLoc.u_state,0);
-  gl.uniform2f(rLoc.u_simRes,SIM_W,SIM_H);
-  gl.uniform2f(rLoc.u_canvasRes,hCanvas.width,hCanvas.height);
-  gl.uniform1f(rLoc.u_time,hTime);
-  gl.uniform2f(rLoc.u_mouse,hMX,hMY);
-  gl.uniform1f(rLoc.u_mouseActive,hMA);
-  gl.drawArrays(gl.POINTS,0,ACTUAL_COUNT);
-  gl.disable(gl.BLEND);
-}
-requestAnimationFrame(animHero);
-
-window.addEventListener('resize',()=>{
-  resizeHero();
+  if(!heroEl)return;
+  const r=heroEl.getBoundingClientRect();
+  if(e.clientY>r.bottom)mActive*=0.95;
 });
 
 })();
