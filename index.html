@@ -1011,28 +1011,28 @@ const silkMat=new THREE.ShaderMaterial({
       vec3 pos=position;
 
       // Layered noise displacement
-      float t=uTime*0.18;
-      float n1=snoise(vec3(pos.xy*1.2,t*0.7))*0.12;
-      float n2=snoise(vec3(pos.xy*2.8+50.0,t*1.1+100.0))*0.05;
-      float n3=snoise(vec3(pos.xy*6.0+100.0,t*1.6+200.0))*0.02;
-      float n4=snoise(vec3(pos.xy*12.0+200.0,t*2.2+300.0))*0.008;
+      float t=uTime*0.5;
+      float n1=snoise(vec3(pos.xy*1.2,t*1.4))*0.12;
+      float n2=snoise(vec3(pos.xy*2.8+50.0,t*2.2+100.0))*0.05;
+      float n3=snoise(vec3(pos.xy*6.0+100.0,t*3.2+200.0))*0.02;
+      float n4=snoise(vec3(pos.xy*12.0+200.0,t*4.4+300.0))*0.008;
       float displacement=n1+n2+n3+n4;
 
       // Breathing
-      displacement+=sin(t*0.5+pos.x*0.8)*0.015;
-      displacement+=cos(t*0.35+pos.y*0.6)*0.012;
+      displacement+=sin(t*1.2+pos.x*0.8)*0.015;
+      displacement+=cos(t*0.9+pos.y*0.6)*0.012;
 
       // Mouse interaction
       float mDist=length(pos.xy-uMouse*2.5);
       float mouseForce=0.0;
       if(uMouseActive>0.5){
-        mouseForce=smoothstep(1.2,0.0,mDist)*0.35;
+        mouseForce=smoothstep(1.6,0.0,mDist)*0.5;
         displacement+=mouseForce;
       }
 
       // Edge curl for silk fold effect
       float edgeDist=length(pos.xy);
-      float edgeCurl=sin(edgeDist*3.0+t*0.4)*0.03*(1.0-smoothstep(0.0,1.8,edgeDist));
+      float edgeCurl=sin(edgeDist*3.0+t*1.0)*0.03*(1.0-smoothstep(0.0,1.8,edgeDist));
       displacement+=edgeCurl;
 
       pos.z+=displacement;
@@ -1080,7 +1080,7 @@ const silkMat=new THREE.ShaderMaterial({
       vec3 color=mix(baseColor,rimColor,fresnel*0.7);
 
       // Subtle surface variation
-      float variation=sin(vUv.x*40.0+uTime*0.3)*sin(vUv.y*40.0-uTime*0.2)*0.02;
+      float variation=sin(vUv.x*40.0+uTime*0.8)*sin(vUv.y*40.0-uTime*0.6)*0.02;
       color+=variation;
 
       // Micro fold highlights
@@ -1128,12 +1128,12 @@ function animateSilk(){
   const t=clock.getElapsedTime();
 
   // Smooth mouse
-  mSX+=(mX-mSX)*0.06;
-  mSY+=(mY-mSY)*0.06;
+  mSX+=(mX-mSX)*0.28;
+  mSY+=(mY-mSY)*0.28;
 
   // Scroll
   sTarget=window.scrollY/(document.body.scrollHeight-window.innerHeight);
-  sProgress+=(sTarget-sProgress)*0.04;
+  sProgress+=(sTarget-sProgress)*0.2;
 
   silkMat.uniforms.uTime.value=t;
   silkMat.uniforms.uMouse.value.set(mSX,mSY);
@@ -1141,9 +1141,9 @@ function animateSilk(){
   silkMat.uniforms.uScroll.value=sProgress;
 
   // Gentle breathing on whole mesh
-  mesh.rotation.x=Math.sin(t*0.15)*0.015+sProgress*0.3;
-  mesh.rotation.y=Math.cos(t*0.12)*0.01;
-  mesh.position.y=Math.sin(t*0.2)*0.03;
+  mesh.rotation.x=Math.sin(t*0.4)*0.015+sProgress*0.3;
+  mesh.rotation.y=Math.cos(t*0.35)*0.01;
+  mesh.position.y=Math.sin(t*0.6)*0.03;
 
   // Dissolve offset
   mesh.position.z=-sProgress*1.5;
