@@ -911,9 +911,8 @@ document.addEventListener('dblclick',(e)=>{
 
 /* ==========================================
    QUANTUM FIELD — Hero Canvas
-   Living simulation: 20K particles, curl noise
-   flow, wireframe architecture, mouse force,
-   scroll depth, infinite procedural evolution
+   Living sculpture: particles + 3D geometry
+   + orbital rings + lighting + mouse + scroll
 ========================================== */
 (function(){
 "use strict";
@@ -925,8 +924,10 @@ var renderer=new THREE.WebGLRenderer({canvas:hCanvas,alpha:true,antialias:true})
 renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
 renderer.setClearColor(0x000000,0);
 renderer.setSize(W,H);
+
 var scene=new THREE.Scene();
-var camera=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+var camera=new THREE.PerspectiveCamera(50,W/H,0.1,100);
+camera.position.set(0,0,6);
 
 var mX=0,mY=0,mActive=0;
 var heroEl=document.getElementById('hero');
@@ -942,8 +943,17 @@ if(heroEl)heroEl.addEventListener('mouseleave',function(){mActive*=0.3;});
 
 var sDepth=0;
 
-/* ============ LAYER 1: PARTICLE FIELD ============ */
-var PCount=20000;
+/* ============ LIGHTING ============ */
+scene.add(new THREE.AmbientLight(0xFFF8F0,0.6));
+var sun=new THREE.DirectionalLight(0xFFF5E6,0.7);
+sun.position.set(4,5,6);scene.add(sun);
+var fill=new THREE.DirectionalLight(0xE8E0F0,0.3);
+fill.position.set(-3,2,4);scene.add(fill);
+var rim=new THREE.DirectionalLight(0xFFEEDD,0.2);
+rim.position.set(0,-3,2);scene.add(rim);
+
+/* ============ PARTICLE SYSTEM ============ */
+var PCount=15000;
 var pGeo=new THREE.BufferGeometry();
 var pIdx=new Float32Array(PCount);
 for(var pi=0;pi<PCount;pi++)pIdx[pi]=pi;
@@ -955,7 +965,6 @@ var pVS=[
 'uniform vec2 uMouse;',
 'uniform float uActive;',
 'uniform float uScroll;',
-'uniform vec2 uRes;',
 'varying float vAlpha;',
 'varying float vDepth;',
 'varying float vLayer;',
@@ -986,8 +995,7 @@ var pVS=[
 '  float f=0.0;',
 '  f+=0.5*noise3(p);p*=2.02;',
 '  f+=0.25*noise3(p);p*=2.03;',
-'  f+=0.125*noise3(p);p*=2.01;',
-'  f+=0.0625*noise3(p);',
+'  f+=0.125*noise3(p);',
 '  return f;',
 '}',
 '',
@@ -1007,42 +1015,41 @@ var pVS=[
 '  float n2=fbm(np+vec3(5.2,1.3,3.7));',
 '  float n3=fbm(np+vec3(9.1,7.4,2.8));',
 '',
-'  float spread=2.6-uScroll*0.6;',
+'  float spread=3.2-uScroll*0.8;',
 '  vec3 pos=vec3(',
-'    (gx-0.5)*spread+n1*0.8,',
-'    (gy-0.5)*spread*0.65+n2*0.8,',
-'    (gz-0.5)*1.2+n3*0.3',
+'    (gx-0.5)*spread+n1*0.9,',
+'    (gy-0.5)*spread*0.7+n2*0.9,',
+'    -4.0+(gz-0.5)*4.0+n3*0.3',
 '  );',
 '',
-'  pos.z+=uScroll*2.5;',
-'  pos.xy+=vec2(sin(uTime*0.3+gy*5.0)*0.08,cos(uTime*0.25+gx*5.0)*0.08);',
+'  pos.z+=uScroll*2.0;',
+'  pos.xy+=vec2(sin(uTime*0.3+gy*5.0)*0.1,cos(uTime*0.25+gx*5.0)*0.1);',
 '',
 '  if(uActive>0.5){',
-'    vec2 toM=vec2(pos.x-uMouse.x*1.5,pos.y-uMouse.y*1.2);',
+'    vec2 toM=vec2(pos.x-uMouse.x*2.0,pos.y-uMouse.y*1.5);',
 '    float md=length(toM);',
-'    float mf=smoothstep(0.9,0.0,md)*0.4;',
+'    float mf=smoothstep(1.2,0.0,md)*0.5;',
 '    pos.xy-=normalize(toM+0.001)*mf;',
-'    pos.z+=mf*0.3*sin(uTime*3.5+id*0.1);',
 '  }',
 '',
-'  float depth=(pos.z+1.5)/4.0;',
-'  vDepth=depth;',
+'  float depth=(pos.z+4.0)/4.0;',
+'  vDepth=clamp(depth,0.0,1.0);',
 '  vLayer=pLayer;',
 '',
-'  float nearAlpha=smoothstep(0.0,0.3,depth)*smoothstep(1.0,0.4,depth)*0.65;',
-'  float midAlpha=smoothstep(0.3,0.5,depth)*smoothstep(0.9,0.6,depth)*0.45;',
-'  float farAlpha=smoothstep(0.6,0.8,depth)*smoothstep(1.2,0.9,depth)*0.25;',
-'  vAlpha=nearAlpha+midAlpha+farAlpha;',
-'  vAlpha+=sin(uTime*0.5+phase)*0.05;',
-'  vAlpha=clamp(vAlpha,0.08,0.85);',
+'  float nearA=smoothstep(0.0,0.3,depth)*smoothstep(1.0,0.4,depth)*0.55;',
+'  float midA=smoothstep(0.3,0.6,depth)*smoothstep(0.9,0.5,depth)*0.35;',
+'  float farA=smoothstep(0.6,0.9,depth)*smoothstep(1.2,0.8,depth)*0.15;',
+'  vAlpha=nearA+midA+farA+sin(uTime*0.5+phase)*0.04;',
+'  vAlpha=clamp(vAlpha,0.06,0.7);',
 '',
-'  float nearSize=smoothstep(0.0,0.3,depth)*2.5;',
-'  float midSize=smoothstep(0.3,0.6,depth)*1.5;',
-'  float farSize=smoothstep(0.6,1.0,depth)*0.6;',
-'  float pSize=nearSize+midSize+farSize;',
+'  float nearS=smoothstep(0.0,0.3,depth)*2.2;',
+'  float midS=smoothstep(0.3,0.6,depth)*1.2;',
+'  float farS=smoothstep(0.6,1.0,depth)*0.4;',
+'  float pSize=nearS+midS+farS;',
 '',
-'  gl_Position=vec4(pos.xy*0.36,0.0,1.0);',
-'  gl_PointSize=max(1.0,pSize*uRes.y*0.0025);',
+'  vec4 mvPos=modelViewMatrix*vec4(pos,1.0);',
+'  gl_Position=projectionMatrix*mvPos;',
+'  gl_PointSize=max(1.0,pSize*200.0/(-mvPos.z));',
 '}'
 ].join('\n');
 
@@ -1077,7 +1084,6 @@ var pMat=new THREE.ShaderMaterial({
     uMouse:{value:new THREE.Vector2(0,0)},
     uActive:{value:0},
     uScroll:{value:0},
-    uRes:{value:new THREE.Vector2(W,H)},
   },
   vertexShader:pVS,
   fragmentShader:pFS
@@ -1085,48 +1091,63 @@ var pMat=new THREE.ShaderMaterial({
 var particles=new THREE.Points(pGeo,pMat);
 scene.add(particles);
 
-/* ============ LAYER 2: WIREFRAME ARCHITECTURE ============ */
-var archGroup=new THREE.Group();
-scene.add(archGroup);
+/* ============ SCULPTURE ============ */
+var sculpture=new THREE.Group();
+scene.add(sculpture);
 
-var ring1=new THREE.Mesh(
-  new THREE.TorusGeometry(1.0,0.01,8,80),
-  new THREE.MeshBasicMaterial({color:0x9E9690,transparent:true,opacity:0.25})
+var mat1=new THREE.MeshStandardMaterial({color:0xE8E2DA,roughness:0.3,metalness:0.15});
+var mat2=new THREE.MeshStandardMaterial({color:0xD8D0C8,roughness:0.4,metalness:0.1});
+var mat3=new THREE.MeshStandardMaterial({color:0xC8C0B8,roughness:0.5,metalness:0.05});
+var matGlass=new THREE.MeshStandardMaterial({color:0xF0ECE8,roughness:0.1,metalness:0.05,transparent:true,opacity:0.6});
+
+var shapes=[];
+function addShape(geo,mat,s,px,py,pz){
+  var m=new THREE.Mesh(geo,mat);
+  m.scale.set(s,s,s);m.position.set(px,py,pz);
+  sculpture.add(m);shapes.push(m);return m;
+}
+
+var core=addShape(new THREE.IcosahedronGeometry(0.5,1),mat1,1,0,0,0);
+var orb1=addShape(new THREE.OctahedronGeometry(0.28,0),mat2,1,1.3,0.3,0.2);
+var orb2=addShape(new THREE.OctahedronGeometry(0.22,0),mat3,1,-1.1,-0.4,0.3);
+var orb3=addShape(new THREE.TetrahedronGeometry(0.2,0),matGlass,1,0.5,-1.2,-0.2);
+var orb4=addShape(new THREE.TetrahedronGeometry(0.18,0),mat2,1,-0.7,0.9,0.1);
+var orb5=addShape(new THREE.BoxGeometry(0.25,0.25,0.25),mat1,1,1.0,-0.2,-0.5);
+var orb6=addShape(new THREE.DodecahedronGeometry(0.2,0),mat3,1,-0.3,1.1,0.4);
+
+var wireCore=new THREE.Mesh(
+  new THREE.IcosahedronGeometry(0.72,1),
+  new THREE.MeshBasicMaterial({color:0xC8C0B8,wireframe:true,transparent:true,opacity:0.12})
 );
-archGroup.add(ring1);
+sculpture.add(wireCore);
 
-var ring2=new THREE.Mesh(
-  new THREE.TorusGeometry(0.85,0.007,6,60),
-  new THREE.MeshBasicMaterial({color:0xAAA29C,transparent:true,opacity:0.18})
+/* ============ ORBITAL RINGS ============ */
+var orbitGroup=new THREE.Group();
+sculpture.add(orbitGroup);
+
+var orbitRing1=new THREE.Mesh(
+  new THREE.TorusGeometry(1.6,0.008,8,100),
+  new THREE.MeshBasicMaterial({color:0xB0A8A0,transparent:true,opacity:0.25})
 );
-archGroup.add(ring2);
+orbitGroup.add(orbitRing1);
 
-var ring3=new THREE.Mesh(
-  new THREE.TorusGeometry(1.15,0.008,6,70),
-  new THREE.MeshBasicMaterial({color:0xB0A8A2,transparent:true,opacity:0.14})
+var orbitRing2=new THREE.Mesh(
+  new THREE.TorusGeometry(2.0,0.006,6,80),
+  new THREE.MeshBasicMaterial({color:0xBAB2AA,transparent:true,opacity:0.18})
 );
-archGroup.add(ring3);
+orbitGroup.add(orbitRing2);
 
-var wireGeo=new THREE.IcosahedronGeometry(1.3,1);
-var wireMat=new THREE.MeshBasicMaterial({color:0xADA5A0,transparent:true,opacity:0.08,wireframe:true});
-var wireSphere=new THREE.Mesh(wireGeo,wireMat);
-archGroup.add(wireSphere);
-
-var crossGeo=new THREE.BufferGeometry();
-var crossVerts=new Float32Array([
-  -1.8,0,0, 1.8,0,0,
-  0,-1.2,0, 0,1.2,0,
-  0,0,-0.8, 0,0,0.8
-]);
-crossGeo.setAttribute('position',new THREE.BufferAttribute(crossVerts,3));
-var crossMat=new THREE.LineBasicMaterial({color:0xB5ADA8,transparent:true,opacity:0.12});
-archGroup.add(new THREE.LineSegments(crossGeo,crossMat));
+var orbitRing3=new THREE.Mesh(
+  new THREE.TorusGeometry(2.4,0.005,6,90),
+  new THREE.MeshBasicMaterial({color:0xC0B8B0,transparent:true,opacity:0.12})
+);
+orbitGroup.add(orbitRing3);
 
 /* ============ ANIMATION ============ */
 var clock=new THREE.Clock();
 
-function animateField(){
-  requestAnimationFrame(animateField);
+function animateSculpture(){
+  requestAnimationFrame(animateSculpture);
   var t=clock.getElapsedTime();
   sDepth=window.scrollY/(document.body.scrollHeight-window.innerHeight);
 
@@ -1134,29 +1155,56 @@ function animateField(){
   pMat.uniforms.uMouse.value.set(mX,mY);
   pMat.uniforms.uActive.value=mActive;
   pMat.uniforms.uScroll.value=sDepth;
-  pMat.uniforms.uRes.value.set(W,H);
 
-  ring1.rotation.x=Math.sin(t*0.15)*0.3+sDepth*0.5;
-  ring1.rotation.y=Math.cos(t*0.12)*0.2;
-  ring2.rotation.x=Math.cos(t*0.1)*0.4;
-  ring2.rotation.z=Math.sin(t*0.08)*0.3+sDepth*0.3;
-  ring3.rotation.y=Math.sin(t*0.13)*0.25;
-  ring3.rotation.z=Math.cos(t*0.11)*0.2;
-  wireSphere.rotation.x=t*0.04;
-  wireSphere.rotation.y=t*0.06;
-  wireSphere.scale.setScalar(1.0+Math.sin(t*0.5)*0.03);
+  var tx=mX*0.3;
+  var ty=mY*0.2;
+  sculpture.rotation.y+=(tx-sculpture.rotation.y)*0.04;
+  sculpture.rotation.x+=(ty-sculpture.rotation.x)*0.04;
+
+  core.rotation.x=t*0.15;core.rotation.y=t*0.2;
+  orb1.position.set(Math.cos(t*0.7)*1.3,Math.sin(t*0.5)*0.3,Math.sin(t*0.7)*0.2+0.2);
+  orb2.position.set(Math.sin(t*0.6)*1.1,Math.cos(t*0.4)*0.4,Math.cos(t*0.6)*0.3+0.3);
+  orb3.position.set(Math.cos(t*0.5+1.0)*0.5,Math.sin(t*0.8+2.0)*1.2,Math.sin(t*0.5)*0.2-0.2);
+  orb4.position.set(Math.sin(t*0.9+3.0)*0.7,Math.cos(t*0.6+1.0)*0.9,Math.cos(t*0.9)*0.1+0.1);
+  orb5.position.set(Math.cos(t*0.4+5.0)*1.0,Math.sin(t*0.7+3.0)*0.2,Math.sin(t*0.4+5.0)*0.5-0.5);
+  orb6.position.set(Math.sin(t*0.3+2.0)*0.3,Math.cos(t*0.5+4.0)*1.1,Math.cos(t*0.3+2.0)*0.4+0.4);
+
+  orb1.rotation.x=t*0.8;orb1.rotation.z=t*0.6;
+  orb2.rotation.y=t*0.7;orb2.rotation.z=t*0.5;
+  orb3.rotation.x=t*1.2;
+  orb4.rotation.y=t*0.9;
+  orb5.rotation.x=t*0.6;orb5.rotation.y=t*0.8;
+  orb6.rotation.z=t*0.7;
+
+  var sc=1.0+Math.sin(t*0.5)*0.02;
+  sculpture.scale.setScalar(sc);
+
+  wireCore.rotation.x=t*0.08;wireCore.rotation.y=t*0.1;
+
+  orbitRing1.rotation.x=Math.sin(t*0.1)*0.5;
+  orbitRing1.rotation.y=t*0.12;
+  orbitRing2.rotation.x=Math.cos(t*0.08)*0.6;
+  orbitRing2.rotation.z=Math.sin(t*0.06)*0.4;
+  orbitRing3.rotation.y=Math.sin(t*0.1)*0.3;
+  orbitRing3.rotation.z=Math.cos(t*0.07)*0.5;
+
+  camera.position.x+=(tx*0.5-camera.position.x)*0.03;
+  camera.position.y+=(ty*0.3-camera.position.y)*0.03;
+  camera.position.z=6+sDepth*2;
+  camera.lookAt(0,0,0);
 
   renderer.render(scene,camera);
 }
-animateField();
+animateSculpture();
 
-function resizeField(){
+function resizeSculpture(){
   W=hCanvas.clientWidth;H=hCanvas.clientHeight;
   renderer.setSize(W,H);
-  pMat.uniforms.uRes.value.set(W,H);
+  camera.aspect=W/H;
+  camera.updateProjectionMatrix();
 }
-resizeField();
-window.addEventListener('resize',resizeField);
+resizeSculpture();
+window.addEventListener('resize',resizeSculpture);
 
 document.addEventListener('mousemove',function(e){
   if(!heroEl)return;
