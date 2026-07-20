@@ -924,10 +924,28 @@ var renderer=new THREE.WebGLRenderer({canvas:hCanvas,alpha:true,antialias:true})
 renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
 renderer.setClearColor(0x000000,0);
 renderer.setSize(W,H);
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.1;
+renderer.outputEncoding=THREE.sRGBEncoding;
 
 var scene=new THREE.Scene();
-var camera=new THREE.PerspectiveCamera(50,W/H,0.1,100);
-camera.position.set(0,0,6);
+var camera=new THREE.PerspectiveCamera(45,W/H,0.1,100);
+camera.position.set(0,0,7);
+
+var envCanvas=document.createElement('canvas');
+envCanvas.width=512;envCanvas.height=256;
+var eCtx=envCanvas.getContext('2d');
+var eGrad=eCtx.createLinearGradient(0,0,0,256);
+eGrad.addColorStop(0,'#FFFFFF');eGrad.addColorStop(0.15,'#F5EDE3');
+eGrad.addColorStop(0.3,'#E8DED2');eGrad.addColorStop(0.5,'#D5CBBF');
+eGrad.addColorStop(0.7,'#C8BEB2');eGrad.addColorStop(0.85,'#B8AEA2');
+eGrad.addColorStop(1,'#A89E92');
+eCtx.fillStyle=eGrad;eCtx.fillRect(0,0,512,256);
+eCtx.fillStyle='rgba(255,255,255,0.3)';eCtx.fillRect(180,0,150,256);
+eCtx.fillStyle='rgba(255,255,255,0.15)';eCtx.fillRect(400,0,60,256);
+var envTex=new THREE.CanvasTexture(envCanvas);
+envTex.mapping=THREE.EquirectangularReflectionMapping;
+scene.environment=envTex;
 
 var mX=0,mY=0,mActive=0;
 var heroEl=document.getElementById('hero');
@@ -1095,28 +1113,32 @@ scene.add(particles);
 
 /* ============ SCULPTURE ============ */
 var sculpture=new THREE.Group();
-sculpture.scale.setScalar(1.3);
+sculpture.scale.setScalar(1.6);
 scene.add(sculpture);
 
 var bumpCanvas=document.createElement('canvas');
-bumpCanvas.width=128;bumpCanvas.height=128;
+bumpCanvas.width=512;bumpCanvas.height=512;
 var bCtx=bumpCanvas.getContext('2d');
-var bImg=bCtx.createImageData(128,128);
+var bImg=bCtx.createImageData(512,512);
 for(var bi=0;bi<bImg.data.length;bi+=4){
-  var bv=Math.random()*20+118;
+  var bx=(bi/4)%512,by=Math.floor((bi/4)/512);
+  var bv=128+Math.sin(bx*0.08)*Math.cos(by*0.08)*30
+    +Math.sin(bx*0.25+by*0.18)*15
+    +Math.sin(bx*0.5)*Math.cos(by*0.3)*10
+    +(Math.random()-0.5)*8;
   bImg.data[bi]=bv;bImg.data[bi+1]=bv;bImg.data[bi+2]=bv;bImg.data[bi+3]=255;
 }
 bCtx.putImageData(bImg,0,0);
 var bumpTex=new THREE.CanvasTexture(bumpCanvas);
 bumpTex.wrapS=bumpTex.wrapT=THREE.RepeatWrapping;
 
-var mat1=new THREE.MeshStandardMaterial({color:0xE8E2DA,roughness:0.3,metalness:0.15,bumpMap:bumpTex,bumpScale:0.02});
-var mat2=new THREE.MeshStandardMaterial({color:0xD8D0C8,roughness:0.4,metalness:0.1,bumpMap:bumpTex,bumpScale:0.015});
-var mat3=new THREE.MeshStandardMaterial({color:0xC8C0B8,roughness:0.5,metalness:0.05,bumpMap:bumpTex,bumpScale:0.01});
-var matGlass=new THREE.MeshStandardMaterial({color:0xF0ECE8,roughness:0.1,metalness:0.05,transparent:true,opacity:0.6,bumpMap:bumpTex,bumpScale:0.008});
-var matRed=new THREE.MeshStandardMaterial({color:0xD6412C,roughness:0.35,metalness:0.1,bumpMap:bumpTex,bumpScale:0.012});
-var matBlue=new THREE.MeshStandardMaterial({color:0x28407A,roughness:0.4,metalness:0.08,bumpMap:bumpTex,bumpScale:0.012});
-var matYellow=new THREE.MeshStandardMaterial({color:0xE8AF2E,roughness:0.3,metalness:0.12,bumpMap:bumpTex,bumpScale:0.01});
+var matWhite=new THREE.MeshPhysicalMaterial({color:0xEAE4DC,roughness:0.18,metalness:0.02,clearcoat:0.4,clearcoatRoughness:0.15,envMapIntensity:1.2,bumpMap:bumpTex,bumpScale:0.012});
+var matTaupe=new THREE.MeshPhysicalMaterial({color:0xD0C8BE,roughness:0.25,metalness:0.03,clearcoat:0.3,clearcoatRoughness:0.2,envMapIntensity:1.1,bumpMap:bumpTex,bumpScale:0.015});
+var matStone=new THREE.MeshPhysicalMaterial({color:0xBEB6AC,roughness:0.35,metalness:0.01,clearcoat:0.2,clearcoatRoughness:0.3,envMapIntensity:0.9,bumpMap:bumpTex,bumpScale:0.02});
+var matGlass=new THREE.MeshPhysicalMaterial({color:0xF4F0EC,roughness:0.05,metalness:0.0,transparent:true,opacity:0.35,envMapIntensity:1.5,bumpMap:bumpTex,bumpScale:0.005});
+var matRed=new THREE.MeshPhysicalMaterial({color:0xD6412C,roughness:0.22,metalness:0.05,clearcoat:0.5,clearcoatRoughness:0.1,bumpMap:bumpTex,bumpScale:0.01});
+var matBlue=new THREE.MeshPhysicalMaterial({color:0x28407A,roughness:0.2,metalness:0.08,clearcoat:0.45,clearcoatRoughness:0.12,bumpMap:bumpTex,bumpScale:0.01});
+var matYellow=new THREE.MeshPhysicalMaterial({color:0xE8AF2E,roughness:0.15,metalness:0.1,clearcoat:0.5,clearcoatRoughness:0.08,bumpMap:bumpTex,bumpScale:0.008});
 
 var shapes=[];
 function addShape(geo,mat,s,px,py,pz){
@@ -1125,39 +1147,46 @@ function addShape(geo,mat,s,px,py,pz){
   sculpture.add(m);shapes.push(m);return m;
 }
 
-var core=addShape(new THREE.IcosahedronGeometry(0.6,2),mat1,1,0,0,0);
-var orb1=addShape(new THREE.OctahedronGeometry(0.35,1),mat2,1,1.6,0.4,0.3);
-var orb2=addShape(new THREE.OctahedronGeometry(0.28,1),matRed,1,-1.4,-0.5,0.4);
-var orb3=addShape(new THREE.TetrahedronGeometry(0.25,0),matGlass,1,0.6,-1.5,-0.3);
-var orb4=addShape(new THREE.TetrahedronGeometry(0.22,0),matBlue,1,-0.9,1.1,0.2);
-var orb5=addShape(new THREE.BoxGeometry(0.32,0.32,0.32),matYellow,1,1.3,-0.3,-0.6);
-var orb6=addShape(new THREE.DodecahedronGeometry(0.25,1),mat3,1,-0.4,1.4,0.5);
+var core=addShape(new THREE.IcosahedronGeometry(0.8,4),matWhite,1,0,0,0);
+var orb1=addShape(new THREE.OctahedronGeometry(0.45,3),matTaupe,1,2.0,0.5,0.3);
+var orb2=addShape(new THREE.SphereGeometry(0.38,48,48),matRed,1,-1.8,-0.6,0.5);
+var orb3=addShape(new THREE.SphereGeometry(0.32,48,48),matGlass,1,0.8,-1.9,-0.4);
+var orb4=addShape(new THREE.DodecahedronGeometry(0.35,3),matBlue,1,-1.1,1.4,0.3);
+var orb5=addShape(new THREE.TorusKnotGeometry(0.28,0.09,128,32),matYellow,1,1.6,-0.4,-0.8);
+var orb6=addShape(new THREE.IcosahedronGeometry(0.32,3),matStone,1,-0.5,1.8,0.6);
+var orb7=addShape(new THREE.TorusGeometry(0.22,0.08,32,64),matTaupe,1,0.3,0.4,-1.6);
 
 var wireCore=new THREE.Mesh(
-  new THREE.IcosahedronGeometry(1.0,1),
-  new THREE.MeshBasicMaterial({color:0xB5ADA5,wireframe:true,transparent:true,opacity:0.15})
+  new THREE.IcosahedronGeometry(1.3,1),
+  new THREE.MeshBasicMaterial({color:0xC0B8B0,wireframe:true,transparent:true,opacity:0.1})
 );
 sculpture.add(wireCore);
+
+var wireCore2=new THREE.Mesh(
+  new THREE.DodecahedronGeometry(1.6,0),
+  new THREE.MeshBasicMaterial({color:0xD0C8C0,wireframe:true,transparent:true,opacity:0.06})
+);
+sculpture.add(wireCore2);
 
 /* ============ ORBITAL RINGS ============ */
 var orbitGroup=new THREE.Group();
 sculpture.add(orbitGroup);
 
 var orbitRing1=new THREE.Mesh(
-  new THREE.TorusGeometry(1.9,0.01,8,100),
-  new THREE.MeshBasicMaterial({color:0xA09890,transparent:true,opacity:0.3})
+  new THREE.TorusGeometry(2.4,0.012,16,128),
+  new THREE.MeshBasicMaterial({color:0xA09890,transparent:true,opacity:0.28})
 );
 orbitGroup.add(orbitRing1);
 
 var orbitRing2=new THREE.Mesh(
-  new THREE.TorusGeometry(2.4,0.008,6,80),
-  new THREE.MeshBasicMaterial({color:0xAAA29A,transparent:true,opacity:0.22})
+  new THREE.TorusGeometry(3.0,0.01,12,100),
+  new THREE.MeshBasicMaterial({color:0xAAA29A,transparent:true,opacity:0.2})
 );
 orbitGroup.add(orbitRing2);
 
 var orbitRing3=new THREE.Mesh(
-  new THREE.TorusGeometry(2.9,0.006,6,90),
-  new THREE.MeshBasicMaterial({color:0xB5ADA5,transparent:true,opacity:0.15})
+  new THREE.TorusGeometry(3.6,0.008,12,110),
+  new THREE.MeshBasicMaterial({color:0xB5ADA5,transparent:true,opacity:0.14})
 );
 orbitGroup.add(orbitRing3);
 
@@ -1180,12 +1209,13 @@ function animateSculpture(){
   sculpture.rotation.x+=(ty-sculpture.rotation.x)*0.04;
 
   core.rotation.x=t*0.15;core.rotation.y=t*0.2;
-  orb1.position.set(Math.cos(t*0.7)*1.6,Math.sin(t*0.5)*0.4,Math.sin(t*0.7)*0.3+0.3);
-  orb2.position.set(Math.sin(t*0.6)*1.4,Math.cos(t*0.4)*0.5,Math.cos(t*0.6)*0.4+0.4);
-  orb3.position.set(Math.cos(t*0.5+1.0)*0.6,Math.sin(t*0.8+2.0)*1.5,Math.sin(t*0.5)*0.3-0.3);
-  orb4.position.set(Math.sin(t*0.9+3.0)*0.9,Math.cos(t*0.6+1.0)*1.1,Math.cos(t*0.9)*0.2+0.2);
-  orb5.position.set(Math.cos(t*0.4+5.0)*1.3,Math.sin(t*0.7+3.0)*0.3,Math.sin(t*0.4+5.0)*0.6-0.6);
-  orb6.position.set(Math.sin(t*0.3+2.0)*0.4,Math.cos(t*0.5+4.0)*1.4,Math.cos(t*0.3+2.0)*0.5+0.5);
+  orb1.position.set(Math.cos(t*0.7)*2.0,Math.sin(t*0.5)*0.5,Math.sin(t*0.7)*0.3+0.3);
+  orb2.position.set(Math.sin(t*0.6)*1.8,Math.cos(t*0.4)*0.6,Math.cos(t*0.6)*0.5+0.5);
+  orb3.position.set(Math.cos(t*0.5+1.0)*0.8,Math.sin(t*0.8+2.0)*1.9,Math.sin(t*0.5)*0.4-0.4);
+  orb4.position.set(Math.sin(t*0.9+3.0)*1.1,Math.cos(t*0.6+1.0)*1.4,Math.cos(t*0.9)*0.3+0.3);
+  orb5.position.set(Math.cos(t*0.4+5.0)*1.6,Math.sin(t*0.7+3.0)*0.4,Math.sin(t*0.4+5.0)*0.8-0.8);
+  orb6.position.set(Math.sin(t*0.3+2.0)*0.5,Math.cos(t*0.5+4.0)*1.8,Math.cos(t*0.3+2.0)*0.6+0.6);
+  orb7.position.set(Math.cos(t*0.45+0.8)*0.3,Math.cos(t*0.35+1.2)*0.4+0.4,Math.sin(t*0.45+0.8)*1.6-0.6);
 
   orb1.rotation.x=t*0.8;orb1.rotation.z=t*0.6;
   orb2.rotation.y=t*0.7;orb2.rotation.z=t*0.5;
@@ -1193,6 +1223,7 @@ function animateSculpture(){
   orb4.rotation.y=t*0.9;
   orb5.rotation.x=t*0.6;orb5.rotation.y=t*0.8;
   orb6.rotation.z=t*0.7;
+  orb7.rotation.x=t*0.5;orb7.rotation.y=t*0.3;
 
   var sc=1.0+Math.sin(t*0.5)*0.02;
   sculpture.scale.setScalar(sc);
