@@ -910,9 +910,9 @@ document.addEventListener('dblclick',(e)=>{
 });
 
 /* ==========================================
-   QUANTUM GATEWAY — Hero Canvas
-   Concentric depth rings, portal frame,
-   architectural depth illusion, dust
+   QUANTUM FIELD — Hero Canvas
+   Infinite procedural particles, curl noise
+   flow, mouse interaction, scroll depth
 ========================================== */
 (function(){
 "use strict";
@@ -940,175 +940,165 @@ if(heroEl)heroEl.addEventListener('mousemove',onHeroMouse);
 if(heroEl)heroEl.addEventListener('mouseleave',function(){mActive*=0.3;});
 
 var sDepth=0;
+var N=15000;
+var pGeo=new THREE.BufferGeometry();
+var idx=new Float32Array(N);
+for(var i=0;i<N;i++)idx[i]=i;
+pGeo.setAttribute('idx',new THREE.BufferAttribute(idx,1));
 
-var portalVS=[
-  'varying vec2 vUv;',
-  'void main(){',
-  '  vUv = position.xy * 0.5 + 0.5;',
-  '  gl_Position = vec4(position.xy, 0.0, 1.0);',
-  '}'
-].join('\n');
-
-var portalFS=[
-  'precision highp float;',
+var pVS=[
+  'attribute float idx;',
   'uniform float uTime;',
   'uniform vec2 uMouse;',
+  'uniform float uActive;',
   'uniform float uScroll;',
   'uniform vec2 uRes;',
-  'uniform float mActive;',
-  'varying vec2 vUv;',
+  'varying float vAlpha;',
+  'varying float vDepth;',
+  '',
+  'vec3 mod283(vec3 x){return x-floor(x*(1.0/283.0))*283.0;}',
+  'vec4 mod284(vec4 x){return x-floor(x*(1.0/283.0))*283.0;}',
+  'vec4 perm(vec4 x){return mod284(((x*34.0)+1.0)*x);}',
+  '',
+  'float noise3(vec3 p){',
+  '  vec3 a=floor(p);',
+  '  vec3 d=p-a;',
+  '  d=d*d*(3.0-2.0*d);',
+  '  vec4 b=a.xxyy+vec4(0,1,0,1);',
+  '  vec4 k1=perm(b.xyxy);',
+  '  vec4 k2=perm(k1.xyxy+b.zzww);',
+  '  vec4 c=a.z+d.z+vec4(0,0,1,1);',
+  '  vec4 k3=perm(c.xxxx);',
+  '  vec4 k4=perm(c.xxxx+c.yyyy);',
+  '  vec4 o1=fract(k1*(1.0/41.0));',
+  '  vec4 o2=fract(k2*(1.0/41.0));',
+  '  vec4 o3=fract(k3*(1.0/41.0));',
+  '  vec4 o4=fract(k4*(1.0/41.0));',
+  '  vec4 r=o2.xxyz+o2.yzzw*d.zzzz+o3.xyxz*d.yyyy+d.xxxx*o4;',
+  '  return mix(mix(r.x,r.y,d.x),mix(r.z,r.w,d.x),d.y);',
+  '}',
+  '',
+  'vec3 curlNoise(vec3 p){',
+  '  float e=0.1;',
+  '  float n1,n2;',
+  '  vec3 c;',
+  '  n1=noise3(p+vec3(0,e,0));n2=noise3(p-vec3(0,e,0));',
+  '  float a=(n1-n2)/(2.0*e);',
+  '  n1=noise3(p+vec3(0,0,e));n2=noise3(p-vec3(0,0,e));',
+  '  float b=(n1-n2)/(2.0*e);',
+  '  c.x=a-b;',
+  '  n1=noise3(p+vec3(0,0,e));n2=noise3(p-vec3(0,0,e));',
+  '  a=(n1-n2)/(2.0*e);',
+  '  n1=noise3(p+vec3(e,0,0));n2=noise3(p-vec3(e,0,0));',
+  '  b=(n1-n2)/(2.0*e);',
+  '  c.y=a-b;',
+  '  n1=noise3(p+vec3(e,0,0));n2=noise3(p-vec3(e,0,0));',
+  '  a=(n1-n2)/(2.0*e);',
+  '  n1=noise3(p+vec3(0,e,0));n2=noise3(p-vec3(0,e,0));',
+  '  b=(n1-n2)/(2.0*e);',
+  '  c.z=a-b;',
+  '  return normalize(c);',
+  '}',
+  '',
+  'float hash(float n){return fract(sin(n)*43758.5453);}',
   '',
   'void main(){',
-  '  vec2 uv = (vUv - 0.5) * 2.0;',
-  '  uv.x *= uRes.x / uRes.y;',
-  '  float t = uTime;',
-  '  vec3 col = vec3(0.97, 0.96, 0.94);',
+  '  float id=idx;',
+  '  float gx=hash(id*0.127+1.3);',
+  '  float gy=hash(id*0.311+2.7);',
+  '  float gz=hash(id*0.523+4.1);',
+  '  float speed=0.08+hash(id*0.197)*0.12;',
+  '  float phase=hash(id*0.433)*6.283;',
   '',
-  '  vec2 off = vec2(uMouse.x * 0.12, uMouse.y * 0.1);',
-  '  vec2 pUV = uv - off;',
-  '  float pDist = length(pUV);',
+  '  vec3 np=vec3(gx*3.0+uTime*speed,gy*3.0+uTime*speed*0.7,phase+uTime*speed*0.3);',
+  '  vec3 curl=curlNoise(np);',
   '',
-  '  float outerR = 0.70;',
-  '  float innerR = 0.58;',
-  '  float frameMask = 1.0 - smoothstep(innerR - 0.015, innerR + 0.005, pDist);',
-  '  frameMask *= smoothstep(outerR - 0.005, outerR + 0.015, pDist);',
-  '  vec3 frameCol = vec3(0.96, 0.95, 0.94);',
-  '  float e1 = 1.0 - smoothstep(0.0, 0.04, abs(pDist - innerR));',
-  '  frameCol += e1 * 0.04;',
-  '  float e2 = 1.0 - smoothstep(0.0, 0.03, abs(pDist - outerR));',
-  '  frameCol += e2 * 0.03;',
-  '  col = mix(col, frameCol, frameMask);',
+  '  float spread=2.8-uScroll*0.8;',
+  '  vec3 pos=vec3(',
+  '    (gx-0.5)*spread+curl.x*0.9,',
+  '    (gy-0.5)*spread*0.7+curl.y*0.9,',
+  '    (gz-0.5)*1.5+curl.z*0.4',
+  '  );',
   '',
-  '  float inside = 1.0 - smoothstep(innerR - 0.01, innerR + 0.01, pDist);',
-  '  if(inside > 0.01){',
-  '    vec3 deepCol = vec3(0.94, 0.92, 0.89);',
-  '    float tunnel = 0.0;',
-  '    for(int i = 1; i <= 8; i++){',
-  '      float fi = float(i);',
-  '      float ring = abs(pDist - 0.58 + fi * 0.045);',
-  '      float w = 0.006 + fi * 0.001;',
-  '      tunnel += (1.0 - smoothstep(0.0, w, ring)) * (1.0 / fi);',
-  '    }',
-  '    float breathing = sin(t * 1.5) * 0.015 + cos(t * 0.9) * 0.01;',
-  '    tunnel += breathing * inside;',
-  '    float depthDark = smoothstep(0.0, innerR, pDist) * 0.25;',
-  '    float innerLight = (1.0 - smoothstep(0.0, innerR * 0.6, pDist)) * 0.03;',
-  '    vec3 interiorCol = deepCol - vec3(depthDark) + vec3(innerLight);',
-  '    interiorCol += vec3(0.04, 0.035, 0.03) * tunnel;',
-  '    float mouseGlow = 0.0;',
-  '    if(mActive > 0.5){',
-  '      mouseGlow = (1.0 - smoothstep(0.0, innerR, pDist)) * 0.04;',
-  '    }',
-  '    interiorCol += vec3(0.98, 0.96, 0.92) * mouseGlow;',
-  '    col = mix(col, interiorCol, inside);',
+  '  float scrollDepth=uScroll*3.0;',
+  '  pos.z+=scrollDepth;',
+  '  pos.xy+=curl.xy*sin(uTime*0.5+gz*3.0)*0.15;',
+  '',
+  '  if(uActive>0.5){',
+  '    vec2 mp=vec2(pos.x-uMouse.x*1.5,pos.y-uMouse.y*1.2);',
+  '    float md=length(mp);',
+  '    float mf=smoothstep(0.8,0.0,md)*0.35;',
+  '    pos.xy-=normalize(mp+0.001)*mf;',
+  '    pos.z+=mf*0.3*sin(uTime*4.0+id);',
   '  }',
   '',
-  '  float halo = 0.015 / (0.015 + (pDist - innerR) * (pDist - innerR) * 80.0);',
-  '  halo *= (1.0 - smoothstep(0.0, 0.45, pDist));',
-  '  halo *= inside;',
-  '  col += vec3(0.97, 0.95, 0.91) * halo * 0.02;',
+  '  pos.x+=sin(uTime*0.3+gy*5.0)*0.06;',
+  '  pos.y+=cos(uTime*0.25+gx*5.0)*0.06;',
   '',
-  '  float v = vUv.x * (1.0 - vUv.x) * vUv.y * (1.0 - vUv.y);',
-  '  col *= pow(v * 16.0, 0.08);',
+  '  float depth=(pos.z+2.0)/5.0;',
+  '  vDepth=depth;',
+  '  vAlpha=smoothstep(-0.5,0.5,depth)*smoothstep(2.5,0.8,depth)*0.3;',
+  '  vAlpha+=curl.x*0.05;',
+  '  vAlpha=clamp(vAlpha,0.02,0.5);',
   '',
-  '  gl_FragColor = vec4(col, 1.0);',
+  '  gl_Position=vec4(pos.xy*0.38,0.0,1.0);',
+  '  gl_PointSize=max(1.0,(1.5-depth*0.8)*uRes.y*0.003);',
   '}'
 ].join('\n');
 
-var portalMat=new THREE.ShaderMaterial({
-  uniforms:{
-    uTime:{value:0},
-    uMouse:{value:new THREE.Vector2(0,0)},
-    uScroll:{value:0},
-    uRes:{value:new THREE.Vector2(W,H)},
-    mActive:{value:0},
-  },
-  vertexShader:portalVS,
-  fragmentShader:portalFS
-});
-var portalQuad=new THREE.Mesh(new THREE.PlaneGeometry(2,2),portalMat);
-scene.add(portalQuad);
-
-var DUST=80;
-var dPos=new Float32Array(DUST*3);
-var dSizes=new Float32Array(DUST);
-var i;
-for(i=0;i<DUST;i++){
-  dPos[i*3]=(Math.random()-0.5)*1.8;
-  dPos[i*3+1]=(Math.random()-0.5)*1.3;
-  dPos[i*3+2]=Math.random()*3.0;
-  dSizes[i]=Math.random()*1.5+0.5;
-}
-var dGeo=new THREE.BufferGeometry();
-dGeo.setAttribute('position',new THREE.BufferAttribute(dPos,3));
-dGeo.setAttribute('size',new THREE.BufferAttribute(dSizes,1));
-var dustVS=[
-  'attribute float size;',
-  'uniform float uTime;',
-  'uniform float uScroll;',
-  'varying float vAlpha;',
-  'void main(){',
-  '  vec3 p = position;',
-  '  p.y += sin(uTime * 0.3 + position.x * 3.0) * 0.04;',
-  '  p.x += cos(uTime * 0.2 + position.z * 2.0) * 0.03;',
-  '  vAlpha = (1.0 - smoothstep(0.0, 3.0, p.z)) * 0.15;',
-  '  vec4 mv = modelViewMatrix * vec4(p, 1.0);',
-  '  gl_Position = projectionMatrix * mv;',
-  '  gl_PointSize = size * 200.0 / -mv.z;',
-  '}'
-].join('\n');
-var dustFS=[
+var pFS=[
   'precision highp float;',
   'varying float vAlpha;',
+  'varying float vDepth;',
   'void main(){',
-  '  vec2 c = gl_PointCoord - 0.5;',
-  '  float d = dot(c, c);',
-  '  float a = smoothstep(0.25, 0.0, d) * vAlpha;',
-  '  gl_FragColor = vec4(0.96, 0.95, 0.93, a);',
+  '  vec2 c=gl_PointCoord-0.5;',
+  '  float d=dot(c,c);',
+  '  if(d>0.25) discard;',
+  '  float soft=1.0-smoothstep(0.0,0.25,d);',
+  '  vec3 col=mix(vec3(0.90,0.88,0.85),vec3(0.98,0.97,0.96),vDepth);',
+  '  gl_FragColor=vec4(col,soft*vAlpha);',
   '}'
 ].join('\n');
-var dustMat=new THREE.ShaderMaterial({
+
+var pMat=new THREE.ShaderMaterial({
   transparent:true,
   depthTest:false,
   depthWrite:false,
-  blending:THREE.AdditiveBlending,
+  blending:THREE.NormalBlending,
   uniforms:{
     uTime:{value:0},
+    uMouse:{value:new THREE.Vector2(0,0)},
+    uActive:{value:0},
     uScroll:{value:0},
+    uRes:{value:new THREE.Vector2(W,H)},
   },
-  vertexShader:dustVS,
-  fragmentShader:dustFS
+  vertexShader:pVS,
+  fragmentShader:pFS
 });
-var dustPoints=new THREE.Points(dGeo,dustMat);
-scene.add(dustPoints);
+var particles=new THREE.Points(pGeo,pMat);
+scene.add(particles);
 
 var clock=new THREE.Clock();
-
-function animateGateway(){
-  requestAnimationFrame(animateGateway);
+function animateField(){
+  requestAnimationFrame(animateField);
   var t=clock.getElapsedTime();
   sDepth=window.scrollY/(document.body.scrollHeight-window.innerHeight);
-
-  portalMat.uniforms.uTime.value=t;
-  portalMat.uniforms.uMouse.value.set(mX,mY);
-  portalMat.uniforms.uScroll.value=sDepth;
-  portalMat.uniforms.uRes.value.set(W,H);
-  portalMat.uniforms.mActive.value=mActive;
-
-  dustMat.uniforms.uTime.value=t;
-  dustMat.uniforms.uScroll.value=sDepth;
-
+  pMat.uniforms.uTime.value=t;
+  pMat.uniforms.uMouse.value.set(mX,mY);
+  pMat.uniforms.uActive.value=mActive;
+  pMat.uniforms.uScroll.value=sDepth;
+  pMat.uniforms.uRes.value.set(W,H);
   renderer.render(scene,camera);
 }
-animateGateway();
+animateField();
 
-function resizeGateway(){
+function resizeField(){
   W=hCanvas.clientWidth;H=hCanvas.clientHeight;
   renderer.setSize(W,H);
-  portalMat.uniforms.uRes.value.set(W,H);
+  pMat.uniforms.uRes.value.set(W,H);
 }
-resizeGateway();
-window.addEventListener('resize',resizeGateway);
+resizeField();
+window.addEventListener('resize',resizeField);
 
 document.addEventListener('mousemove',function(e){
   if(!heroEl)return;
