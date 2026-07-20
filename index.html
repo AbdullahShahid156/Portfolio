@@ -910,9 +910,9 @@ document.addEventListener('dblclick',(e)=>{
 });
 
 /* ==========================================
-   REALITY DISTORTION FIELD — Hero Canvas
-   Screen-space refraction, GPU displacement,
-   multi-depth layers, chromatic aberration
+   QUANTUM GATEWAY — Hero Canvas
+   Portal SDF, ray-marched interior,
+   architectural depth, dust particles
 ========================================== */
 (function(){
 "use strict";
@@ -927,7 +927,7 @@ renderer.setSize(W,H);
 const scene=new THREE.Scene();
 const camera=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
 
-// Mouse state — instant tracking
+// Mouse — instant
 let mX=0,mY=0,mActive=0;
 const heroEl=document.getElementById('hero');
 function onHeroMouse(e){
@@ -937,270 +937,262 @@ function onHeroMouse(e){
   mY=-((e.clientY-r.top)/r.height)*2+1;
   mActive=1.0;
 }
-function onHeroLeave(){mActive*=0.3;}
 heroEl&&heroEl.addEventListener('mousemove',onHeroMouse);
-heroEl&&heroEl.addEventListener('mouseleave',onHeroLeave);
+heroEl&&heroEl.addEventListener('mouseleave',()=>{mActive*=0.3;});
 
-// Render targets
-const rtOpts={format:THREE.RGBAFormat,type:THREE.UnsignedByteType,minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter};
-const sceneRT=new THREE.WebGLRenderTarget(W,H,rtOpts);
-const dispA=new THREE.WebGLRenderTarget(W,H,rtOpts);
-const dispB=new THREE.WebGLRenderTarget(W,H,rtOpts);
-let readRT=dispA,writeRT=dispB;
+// Scroll depth
+let sDepth=0;
 
-// === PASS 1: Ambient "Space" Scene ===
-const spaceMat=new THREE.ShaderMaterial({
+// === PORTAL SHADER ===
+const portalMat=new THREE.ShaderMaterial({
+  transparent:true,
+  depthWrite:false,
+  uniforms:{
+    uTime:{value:0},
+    uMouse:{value:new THREE.Vector2(0,0)},
+    uScroll:{value:0},
+    uResolution:{value:new THREE.Vector2(W,H)},
+  },
+  vertexShader:`attribute vec3 position;varying vec2 vUv;void main(){vUv=position.xy*0.5+0.5;gl_Position=vec4(position.xy,0,1);}`,
+  fragmentShader:`
+    uniform float uTime;
+    uniform vec2 uMouse;
+    uniform float uScroll;
+    uniform vec2 uResolution;
+    varying vec2 vUv;
+
+    #define STEPS 72
+    #define FAR 5.0
+
+    float sdTorus(vec3 p,vec2 t){
+      vec2 q=vec2(length(p.xz)-t.x,p.y);
+      return length(q)-t.y;
+    }
+
+    mat3 lookAt(vec3 ro,vec3 ta){
+      vec3 fw=normalize(ta-ro);
+      vec3 rt=normalize(cross(fw,vec3(0,1,0)));
+      return mat3(rt,cross(rt,fw),fw);
+    }
+
+    float tunnelSDF(vec3 p){
+      float z=mod(p.z,1.6);
+      float layer=floor(p.z/1.6);
+      float r=0.82+sin(layer*2.7)*0.06+sin(layer*1.3)*0.04;
+      float sides=10.0+sin(layer*1.8)*2.0;
+      float a=atan(p.x,p.y);
+      float polygon=cos(a*sides)*length(p.xy);
+      float tunnel=polygon-r;
+      float archWidth=0.35+sin(layer*3.1)*0.08;
+      float arch=abs(p.x)-archWidth;
+      float opening=max(arch,p.z-0.08);
+      tunnel=max(tunnel,-opening);
+      float platform=abs(p.y+0.55)-0.02;
+      platform=max(platform,abs(p.x)-0.6);
+      platform=max(platform,abs(z-0.8)-0.4);
+      tunnel=min(tunnel,platform);
+      float ceiling=abs(p.y-0.75)-0.015;
+      ceiling=max(ceiling,abs(p.x)-0.5);
+      ceiling=max(ceiling,abs(z-0.5)-0.3);
+      tunnel=min(tunnel,ceiling);
+      float bridge=abs(p.y-0.1)-0.012;
+      bridge=max(bridge,abs(p.x)-0.25);
+      bridge=max(bridge,abs(z-1.2)-0.15);
+      tunnel=min(tunnel,bridge);
+      return tunnel;
+    }
+
+    float sceneSDF(vec3 p){
+      float tunnel=tunnelSDF(p);
+      vec3 fp=vec3(p.x+sin(p.z*0.4+uTime*0.15)*0.15,
+                    p.y+cos(p.z*0.3+uTime*0.12)*0.12,
+                    mod(p.z+uTime*0.06,3.5)-1.5);
+      float pillar=abs(sin(fp.z*5.0))-0.12;
+      pillar=max(pillar,abs(fp.x)-0.04);
+      pillar=max(pillar,abs(fp.y)-0.3);
+      float cube=dot(abs(fp),vec3(1))-0.06;
+      float ring=length(fp.xz)-0.08;
+      ring=abs(ring)-0.015;
+      ring=max(ring,abs(fp.y)-0.08);
+      return min(tunnel,min(pillar,min(cube,ring)));
+    }
+
+    vec3 getNormal(vec3 p){
+      vec2 e=vec2(0.002,0.0);
+      return normalize(vec3(
+        sceneSDF(p+e.xyy)-sceneSDF(p-e.xyy),
+        sceneSDF(p+e.yxy)-sceneSDF(p-e.yxy),
+        sceneSDF(p+e.yyx)-sceneSDF(p-e.yyx)));
+    }
+
+    void main(){
+      vec2 uv=(vUv-0.5)*2.0;
+      uv.x*=uResolution.x/uResolution.y;
+
+      vec3 ro=vec3(sin(uMouse.x*0.15)*0.12,
+                   sin(uMouse.y*0.15)*0.1,
+                   -2.0-uScroll*1.5);
+      vec3 ta=vec3(sin(uMouse.x*0.1)*0.06,
+                   sin(uMouse.y*0.1)*0.05,
+                   2.0);
+      mat3 cm=lookAt(ro,ta);
+      vec3 rd=normalize(cm*vec3(uv,1.8));
+
+      vec3 col=vec3(0.0);
+      float glow=0.0;
+      float t=0.0;
+      float d;
+
+      for(int i=0;i<STEPS;i++){
+        vec3 p=ro+rd*t;
+        d=sceneSDF(p);
+        float pg=sdTorus(p,vec2(0.0,0.7));
+        glow+=0.012/(0.012+pg*pg*120.0);
+        if(d<0.001||t>FAR)break;
+        t+=d*0.85;
+      }
+
+      vec3 sunDir=normalize(vec3(0.4,0.7,0.5));
+      if(d<0.01){
+        vec3 p=ro+rd*t;
+        vec3 n=getNormal(p);
+        vec3 f=normalize(cross(abs(n.y)>0.9?vec3(1,0,0):vec3(0,1,0),n));
+        vec3 r2=normalize(cross(n,f));
+
+        float diff=max(dot(n,sunDir),0.0);
+        float diff2=max(dot(n,normalize(vec3(-0.3,0.5,-0.4))),0.0)*0.3;
+        float ao=clamp(1.0-t*0.18,0.0,1.0);
+        float spec=pow(max(dot(reflect(-sunDir,n),-rd),0.0),40.0)*0.2;
+
+        vec3 base=vec3(0.95,0.93,0.90);
+        vec3 warm=vec3(0.97,0.94,0.89);
+        col=base*(diff*0.5+0.15)+warm*diff2;
+        col+=spec;
+        col*=ao;
+
+        float shaft=max(dot(n,sunDir),0.0);
+        shaft*=smoothstep(4.5,0.5,t);
+        col+=vec3(0.06,0.055,0.045)*shaft*ao;
+
+        float fog=1.0-exp(-t*0.55);
+        col=mix(col,vec3(0.97,0.96,0.94),fog);
+      }else{
+        col=vec3(0.97,0.96,0.94);
+      }
+
+      float glowAlpha=glow*0.045*smoothstep(FAR,1.0,t);
+      col+=vec3(0.98,0.96,0.92)*glowAlpha;
+
+      float portalDist=sdTorus(vec3((vUv-0.5)*2.0,0),vec2(0.0,0.7));
+      float halo=0.008/(0.008+portalDist*portalDist*20.0);
+      halo*=smoothstep(0.7,0.25,-portalDist);
+      float pulse=0.85+0.15*sin(uTime*1.2);
+      float mouseProx=1.0-length(uMouse)*0.3;
+      col+=vec3(0.97,0.95,0.91)*halo*0.015*pulse*mouseProx;
+
+      float frameMask=smoothstep(0.015,0.0,abs(portalDist));
+      if(frameMask>0.5){
+        vec3 fc=vec3(0.95,0.94,0.93);
+        vec3 edgeLight=vec3(1.0,0.99,0.98);
+        float fresnel=pow(1.0-abs(dot(normalize(vec3((vUv-0.5)*2.0,0,1)),vec3(0,0,1))),2.5);
+        fc=mix(fc,edgeLight,fresnel*0.4);
+        float rimHighlight=smoothstep(0.015,0.003,abs(portalDist));
+        fc+=rimHighlight*0.03;
+        col=fc;
+      }
+
+      col=pow(col,vec3(0.952));
+      vec2 vig=vUv*(1.0-vUv);
+      col*=pow(vig.x*vig.y*15.5,0.12);
+
+      gl_FragColor=vec4(col,1.0);
+    }
+  `
+});
+const portalQuad=new THREE.Mesh(new THREE.PlaneGeometry(2,2),portalMat);
+scene.add(portalQuad);
+
+// === DUST PARTICLES ===
+const DUST=120;
+const dPos=new Float32Array(DUST*3);
+for(let i=0;i<DUST;i++){
+  dPos[i*3]=(Math.random()-0.5)*1.6;
+  dPos[i*3+1]=(Math.random()-0.5)*1.2;
+  dPos[i*3+2]=Math.random()*4.0-1.0;
+}
+const dGeo=new THREE.BufferGeometry();
+dGeo.setAttribute('position',new THREE.BufferAttribute(dPos,3));
+const dustMat=new THREE.ShaderMaterial({
   transparent:true,
   depthTest:false,
   depthWrite:false,
+  blending:THREE.AdditiveBlending,
   uniforms:{
     uTime:{value:0},
-    uMouse:{value:new THREE.Vector2(0,0)},
-    uMouseActive:{value:0},
+    uScroll:{value:0},
     uResolution:{value:new THREE.Vector2(W,H)},
   },
-  vertexShader:`attribute vec3 position;varying vec2 vUv;void main(){vUv=position.xy*0.5+0.5;gl_Position=vec4(position.xy,0,1);}`,
-  fragmentShader:`
+  vertexShader:`
+    attribute vec3 position;
     uniform float uTime;
-    uniform vec2 uMouse;
-    uniform float uMouseActive;
+    uniform float uScroll;
     uniform vec2 uResolution;
-    varying vec2 vUv;
-
+    varying float vAlpha;
     void main(){
-      vec2 uv=vUv;
-      vec2 center=uv-0.5;
-      float dist=length(center);
-
-      // Soft radial gradient — barely visible ambient field
-      float gradient=smoothstep(0.8,0.15,dist)*0.025;
-
-      // Subtle concentric ambient rings (always present, extremely faint)
-      float ring=sin(dist*50.0-uTime*1.2)*0.003*smoothstep(0.8,0.1,dist);
-      float ring2=sin(dist*30.0+uTime*0.8)*0.002*smoothstep(0.7,0.2,dist);
-
-      // Very faint cross pattern
-      float cross=exp(-abs(center.x)*25.0)*exp(-abs(center.y)*25.0)*0.01;
-
-      // Mouse proximity glow — appears on interaction
-      float mouseGlow=0.0;
-      if(uMouseActive>0.5){
-        vec2 mUV=uMouse*0.5+0.5;
-        float mDist=distance(uv,mUV);
-        mouseGlow=smoothstep(0.5,0.0,mDist)*0.06;
-      }
-
-      // Combine — extremely subtle base, slightly more on interaction
-      float brightness=gradient+ring+ring2+cross+mouseGlow;
-      vec3 color=vec3(0.96,0.95,0.93)*brightness;
-
-      float alpha=clamp(brightness*3.0,0.0,0.18);
-      gl_FragColor=vec4(color,alpha);
+      vec3 p=position;
+      p.y+=sin(uTime*0.3+position.x*3.0)*0.04;
+      p.x+=cos(uTime*0.2+position.z*2.0)*0.03;
+      p.z=mod(position.z-uTime*0.04+uScroll*1.5,4.0)-1.0;
+      vAlpha=smoothstep(-1.0,1.0,p.z)*smoothstep(4.0,2.0,p.z);
+      vAlpha*=0.12;
+      vec4 mv=vec4(p,1.0);
+      vec4 cp=vec4(p.xy/p.z*uResolution.y*0.0015,p.z,1.0);
+      gl_Position=cp;
+      gl_PointSize=max(1.0,2.5*(1.0/(p.z+2.0)));
+    }
+  `,
+  fragmentShader:`
+    varying float vAlpha;
+    void main(){
+      vec2 c=gl_PointCoord-0.5;
+      float d=dot(c,c);
+      float a=smoothstep(0.25,0.0,d)*vAlpha;
+      gl_FragColor=vec4(0.96,0.95,0.93,a);
     }
   `
 });
-const spaceQuad=new THREE.Mesh(new THREE.PlaneGeometry(2,2),spaceMat);
-scene.add(spaceQuad);
+const dustPoints=new THREE.Points(dGeo,dustMat);
+scene.add(dustPoints);
 
-// === PASS 2: GPU Wave Simulation ===
-const simMat=new THREE.ShaderMaterial({
-  transparent:false,
-  depthTest:false,
-  depthWrite:false,
-  uniforms:{
-    uPrev:{value:null},
-    uMouse:{value:new THREE.Vector2(0,0)},
-    uMouseActive:{value:0},
-    uResolution:{value:new THREE.Vector2(W,H)},
-    uTime:{value:0},
-  },
-  vertexShader:`attribute vec3 position;varying vec2 vUv;void main(){vUv=position.xy*0.5+0.5;gl_Position=vec4(position.xy,0,1);}`,
-  fragmentShader:`
-    uniform sampler2D uPrev;
-    uniform vec2 uMouse;
-    uniform float uMouseActive;
-    uniform vec2 uResolution;
-    uniform float uTime;
-    varying vec2 vUv;
-
-    void main(){
-      vec2 px=1.0/uResolution;
-      vec4 c=texture2D(uPrev,vUv);
-
-      float hL=texture2D(uPrev,vUv-vec2(px.x,0)).x;
-      float hR=texture2D(uPrev,vUv+vec2(px.x,0)).x;
-      float hU=texture2D(uPrev,vUv+vec2(0,px.y)).x;
-      float hD=texture2D(uPrev,vUv-vec2(0,px.y)).x;
-      float hL2=texture2D(uPrev,vUv-vec2(px.x*2,0)).x;
-      float hR2=texture2D(uPrev,vUv+vec2(px.x*2,0)).x;
-      float hU2=texture2D(uPrev,vUv+vec2(0,px.y*2)).x;
-      float hD2=texture2D(uPrev,vUv-vec2(0,px.y*2)).x;
-
-      float lap=(hL+hR+hU+hD)*1.6-(hL2+hR2+hU2+hD2)*0.2;
-      float vel=c.y+(lap-c.x)*0.55;
-      vel*=0.975;
-      float pos=c.x+vel;
-
-      if(uMouseActive>0.5){
-        float d=distance(vUv,uMouse*0.5+0.5);
-        float influence=smoothstep(0.35,0.0,d);
-        vel+=influence*0.04;
-        pos+=influence*0.06;
-      }
-
-      pos+=sin(vUv.x*18.0+uTime*2.5)*0.001;
-      pos+=cos(vUv.y*14.0-uTime*2.0)*0.001;
-
-      float edge=min(min(vUv.x,1.0-vUv.x),min(vUv.y,1.0-vUv.y));
-      float edgeFade=smoothstep(0.0,0.08,edge);
-      pos*=edgeFade;vel*=edgeFade;
-
-      gl_FragColor=vec4(clamp(pos,-1,1),clamp(vel,-1,1),c.zw);
-    }
-  `
-});
-const simQuad=new THREE.Mesh(new THREE.PlaneGeometry(2,2),simMat);
-scene.add(simQuad);
-
-// === PASS 3: Screen-Space Refraction ===
-const refMat=new THREE.ShaderMaterial({
-  transparent:true,
-  depthTest:false,
-  depthWrite:false,
-  uniforms:{
-    uScene:{value:null},
-    uDisp:{value:null},
-    uTime:{value:0},
-    uMouse:{value:new THREE.Vector2(0,0)},
-    uMouseActive:{value:0},
-    uResolution:{value:new THREE.Vector2(W,H)},
-  },
-  vertexShader:`attribute vec3 position;varying vec2 vUv;void main(){vUv=position.xy*0.5+0.5;gl_Position=vec4(position.xy,0,1);}`,
-  fragmentShader:`
-    uniform sampler2D uScene;
-    uniform sampler2D uDisp;
-    uniform float uTime;
-    uniform vec2 uMouse;
-    uniform float uMouseActive;
-    uniform vec2 uResolution;
-    varying vec2 vUv;
-
-    void main(){
-      vec2 uv=vUv;
-      vec2 px=1.0/uResolution;
-
-      // Multi-depth displacement sampling
-      float dNear=texture2D(uDisp,uv).x;
-      float dMid=texture2D(uDisp,uv+vec2(px.x*3.0,px.y*2.0)).x;
-      float dFar=texture2D(uDisp,uv+vec2(-px.x*2.0,px.y*4.0)).x;
-
-      // Mouse lens — instant
-      float mouseDist=999.0;
-      float mouseStrength=0.0;
-      if(uMouseActive>0.5){
-        vec2 mUV=uMouse*0.5+0.5;
-        mouseDist=distance(uv,mUV);
-        mouseStrength=smoothstep(0.32,0.0,mouseDist);
-      }
-
-      // Combined displacement
-      float totalDisp=dNear*0.55+dMid*0.3+dFar*0.15;
-      totalDisp+=mouseStrength*0.35;
-
-      // Screen-space refraction — bend UVs
-      vec2 dir=(uv-0.5)*2.0;
-      float dirLen=length(dir);
-      dir=dir/max(dirLen,0.001);
-      vec2 refractUv=uv-dir*totalDisp*0.12;
-
-      // Chromatic aberration (< 1%)
-      float ca=totalDisp*0.006;
-      vec2 caDir=(uv-0.5);
-
-      // Sample the scene texture with refracted UVs
-      float r=texture2D(uScene,clamp(refractUv+caDir*ca,0.0,1.0)).a;
-      float g=texture2D(uScene,clamp(refractUv,0.0,1.0)).a;
-      float b=texture2D(uScene,clamp(refractUv-caDir*ca,0.0,1.0)).a;
-
-      // Pressure wave ripples
-      float ripple=sin(mouseDist*45.0-uTime*12.0)*smoothstep(0.32,0.0,mouseDist)*0.015;
-
-      // Light bending highlights
-      float highlight=smoothstep(0.15,0.0,totalDisp-mouseStrength*0.1)*0.05;
-      float shadow=smoothstep(0.0,0.12,totalDisp+mouseStrength*0.1)*0.03;
-
-      // Assemble color from refracted scene + distortion artifacts
-      vec3 color=vec3(0.96,0.95,0.93);
-      color.r*=1.0+r*0.4+highlight;
-      color.g*=1.0+g*0.4+highlight;
-      color.b*=1.0+b*0.4+highlight;
-      color+=ripple+shadow;
-
-      // Alpha — proportional to how much distortion exists
-      float alpha=smoothstep(0.7,0.1,totalDisp+mouseStrength*0.3)*0.2;
-      alpha+=mouseStrength*0.08;
-      alpha=clamp(alpha,0.0,0.35);
-
-      gl_FragColor=vec4(color,alpha);
-    }
-  `
-});
-const refQuad=new THREE.Mesh(new THREE.PlaneGeometry(2,2),refMat);
-scene.add(refQuad);
-
-// === ANIMATION LOOP ===
+// === ANIMATION ===
 const clock=new THREE.Clock();
 
-function animateDistortion(){
-  requestAnimationFrame(animateDistortion);
+function animateGateway(){
+  requestAnimationFrame(animateGateway);
   const t=clock.getElapsedTime();
+  sDepth=window.scrollY/(document.body.scrollHeight-window.innerHeight);
 
-  // --- Pass 1: Render ambient space scene ---
-  renderer.setRenderTarget(sceneRT);
-  renderer.clear();
-  spaceMat.uniforms.uTime.value=t;
-  spaceMat.uniforms.uMouse.value.set(mX,mY);
-  spaceMat.uniforms.uMouseActive.value=mActive;
-  spaceMat.uniforms.uResolution.value.set(W,H);
+  portalMat.uniforms.uTime.value=t;
+  portalMat.uniforms.uMouse.value.set(mX,mY);
+  portalMat.uniforms.uScroll.value=sDepth;
+  portalMat.uniforms.uResolution.value.set(W,H);
+
+  dustMat.uniforms.uTime.value=t;
+  dustMat.uniforms.uScroll.value=sDepth;
+  dustMat.uniforms.uResolution.value.set(W,H);
+
   renderer.render(scene,camera);
-
-  // --- Pass 2: GPU wave simulation ---
-  renderer.setRenderTarget(writeRT);
-  simMat.uniforms.uPrev.value=readRT.texture;
-  simMat.uniforms.uMouse.value.set(mX,mY);
-  simMat.uniforms.uMouseActive.value=mActive;
-  simMat.uniforms.uTime.value=t;
-  simMat.uniforms.uResolution.value.set(W,H);
-  renderer.render(scene,camera);
-
-  // --- Pass 3: Refraction composite to screen ---
-  renderer.setRenderTarget(null);
-  renderer.clear();
-  refMat.uniforms.uScene.value=sceneRT.texture;
-  refMat.uniforms.uDisp.value=writeRT.texture;
-  refMat.uniforms.uTime.value=t;
-  refMat.uniforms.uMouse.value.set(mX,mY);
-  refMat.uniforms.uMouseActive.value=mActive;
-  refMat.uniforms.uResolution.value.set(W,H);
-  renderer.render(scene,camera);
-
-  // Swap ping-pong
-  const tmp=writeRT;writeRT=readRT;readRT=tmp;
 }
-animateDistortion();
+animateGateway();
 
-function resizeDistortion(){
+function resizeGateway(){
   W=hCanvas.clientWidth;H=hCanvas.clientHeight;
   renderer.setSize(W,H);
-  sceneRT.setSize(W,H);
-  dispA.setSize(W,H);
-  dispB.setSize(W,H);
-  spaceMat.uniforms.uResolution.value.set(W,H);
-  simMat.uniforms.uResolution.value.set(W,H);
-  refMat.uniforms.uResolution.value.set(W,H);
+  portalMat.uniforms.uResolution.value.set(W,H);
+  dustMat.uniforms.uResolution.value.set(W,H);
 }
-resizeDistortion();
-window.addEventListener('resize',resizeDistortion);
+resizeGateway();
+window.addEventListener('resize',resizeGateway);
 
 document.addEventListener('mousemove',(e)=>{
   if(!heroEl)return;
