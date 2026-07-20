@@ -944,13 +944,15 @@ if(heroEl)heroEl.addEventListener('mouseleave',function(){mActive*=0.3;});
 var sDepth=0;
 
 /* ============ LIGHTING ============ */
-scene.add(new THREE.AmbientLight(0xFFF8F0,0.6));
-var sun=new THREE.DirectionalLight(0xFFF5E6,0.7);
-sun.position.set(4,5,6);scene.add(sun);
-var fill=new THREE.DirectionalLight(0xE8E0F0,0.3);
-fill.position.set(-3,2,4);scene.add(fill);
-var rim=new THREE.DirectionalLight(0xFFEEDD,0.2);
-rim.position.set(0,-3,2);scene.add(rim);
+scene.add(new THREE.AmbientLight(0xFFF8F0,0.5));
+var sun=new THREE.DirectionalLight(0xFFF5E6,0.8);
+sun.position.set(5,6,7);scene.add(sun);
+var fill=new THREE.DirectionalLight(0xE8E0F0,0.35);
+fill.position.set(-4,3,5);scene.add(fill);
+var rim=new THREE.DirectionalLight(0xFFEEDD,0.25);
+rim.position.set(0,-4,3);scene.add(rim);
+var top=new THREE.DirectionalLight(0xFFF0E0,0.15);
+top.position.set(2,8,2);scene.add(top);
 
 /* ============ PARTICLE SYSTEM ============ */
 var PCount=15000;
@@ -1063,9 +1065,9 @@ var pFS=[
 '  float d=dot(c,c);',
 '  if(d>0.25) discard;',
 '  float soft=1.0-smoothstep(0.0,0.25,d);',
-'  vec3 near=vec3(0.72,0.68,0.62);',
-'  vec3 mid=vec3(0.78,0.74,0.68);',
-'  vec3 far=vec3(0.84,0.80,0.74);',
+'  vec3 near=vec3(0.68,0.64,0.58);',
+'  vec3 mid=vec3(0.74,0.70,0.64);',
+'  vec3 far=vec3(0.82,0.78,0.72);',
 '  vec3 col=mix(near,mid,smoothstep(0.0,0.5,vDepth));',
 '  col=mix(col,far,smoothstep(0.5,1.0,vDepth));',
 '  float accent=step(0.92,vLayer)*0.2;',
@@ -1093,12 +1095,28 @@ scene.add(particles);
 
 /* ============ SCULPTURE ============ */
 var sculpture=new THREE.Group();
+sculpture.scale.setScalar(1.3);
 scene.add(sculpture);
 
-var mat1=new THREE.MeshStandardMaterial({color:0xE8E2DA,roughness:0.3,metalness:0.15});
-var mat2=new THREE.MeshStandardMaterial({color:0xD8D0C8,roughness:0.4,metalness:0.1});
-var mat3=new THREE.MeshStandardMaterial({color:0xC8C0B8,roughness:0.5,metalness:0.05});
-var matGlass=new THREE.MeshStandardMaterial({color:0xF0ECE8,roughness:0.1,metalness:0.05,transparent:true,opacity:0.6});
+var bumpCanvas=document.createElement('canvas');
+bumpCanvas.width=128;bumpCanvas.height=128;
+var bCtx=bumpCanvas.getContext('2d');
+var bImg=bCtx.createImageData(128,128);
+for(var bi=0;bi<bImg.data.length;bi+=4){
+  var bv=Math.random()*20+118;
+  bImg.data[bi]=bv;bImg.data[bi+1]=bv;bImg.data[bi+2]=bv;bImg.data[bi+3]=255;
+}
+bCtx.putImageData(bImg,0,0);
+var bumpTex=new THREE.CanvasTexture(bumpCanvas);
+bumpTex.wrapS=bumpTex.wrapT=THREE.RepeatWrapping;
+
+var mat1=new THREE.MeshStandardMaterial({color:0xE8E2DA,roughness:0.3,metalness:0.15,bumpMap:bumpTex,bumpScale:0.02});
+var mat2=new THREE.MeshStandardMaterial({color:0xD8D0C8,roughness:0.4,metalness:0.1,bumpMap:bumpTex,bumpScale:0.015});
+var mat3=new THREE.MeshStandardMaterial({color:0xC8C0B8,roughness:0.5,metalness:0.05,bumpMap:bumpTex,bumpScale:0.01});
+var matGlass=new THREE.MeshStandardMaterial({color:0xF0ECE8,roughness:0.1,metalness:0.05,transparent:true,opacity:0.6,bumpMap:bumpTex,bumpScale:0.008});
+var matRed=new THREE.MeshStandardMaterial({color:0xD6412C,roughness:0.35,metalness:0.1,bumpMap:bumpTex,bumpScale:0.012});
+var matBlue=new THREE.MeshStandardMaterial({color:0x28407A,roughness:0.4,metalness:0.08,bumpMap:bumpTex,bumpScale:0.012});
+var matYellow=new THREE.MeshStandardMaterial({color:0xE8AF2E,roughness:0.3,metalness:0.12,bumpMap:bumpTex,bumpScale:0.01});
 
 var shapes=[];
 function addShape(geo,mat,s,px,py,pz){
@@ -1107,17 +1125,17 @@ function addShape(geo,mat,s,px,py,pz){
   sculpture.add(m);shapes.push(m);return m;
 }
 
-var core=addShape(new THREE.IcosahedronGeometry(0.5,1),mat1,1,0,0,0);
-var orb1=addShape(new THREE.OctahedronGeometry(0.28,0),mat2,1,1.3,0.3,0.2);
-var orb2=addShape(new THREE.OctahedronGeometry(0.22,0),mat3,1,-1.1,-0.4,0.3);
-var orb3=addShape(new THREE.TetrahedronGeometry(0.2,0),matGlass,1,0.5,-1.2,-0.2);
-var orb4=addShape(new THREE.TetrahedronGeometry(0.18,0),mat2,1,-0.7,0.9,0.1);
-var orb5=addShape(new THREE.BoxGeometry(0.25,0.25,0.25),mat1,1,1.0,-0.2,-0.5);
-var orb6=addShape(new THREE.DodecahedronGeometry(0.2,0),mat3,1,-0.3,1.1,0.4);
+var core=addShape(new THREE.IcosahedronGeometry(0.6,2),mat1,1,0,0,0);
+var orb1=addShape(new THREE.OctahedronGeometry(0.35,1),mat2,1,1.6,0.4,0.3);
+var orb2=addShape(new THREE.OctahedronGeometry(0.28,1),matRed,1,-1.4,-0.5,0.4);
+var orb3=addShape(new THREE.TetrahedronGeometry(0.25,0),matGlass,1,0.6,-1.5,-0.3);
+var orb4=addShape(new THREE.TetrahedronGeometry(0.22,0),matBlue,1,-0.9,1.1,0.2);
+var orb5=addShape(new THREE.BoxGeometry(0.32,0.32,0.32),matYellow,1,1.3,-0.3,-0.6);
+var orb6=addShape(new THREE.DodecahedronGeometry(0.25,1),mat3,1,-0.4,1.4,0.5);
 
 var wireCore=new THREE.Mesh(
-  new THREE.IcosahedronGeometry(0.72,1),
-  new THREE.MeshBasicMaterial({color:0xC8C0B8,wireframe:true,transparent:true,opacity:0.12})
+  new THREE.IcosahedronGeometry(1.0,1),
+  new THREE.MeshBasicMaterial({color:0xB5ADA5,wireframe:true,transparent:true,opacity:0.15})
 );
 sculpture.add(wireCore);
 
@@ -1126,20 +1144,20 @@ var orbitGroup=new THREE.Group();
 sculpture.add(orbitGroup);
 
 var orbitRing1=new THREE.Mesh(
-  new THREE.TorusGeometry(1.6,0.008,8,100),
-  new THREE.MeshBasicMaterial({color:0xB0A8A0,transparent:true,opacity:0.25})
+  new THREE.TorusGeometry(1.9,0.01,8,100),
+  new THREE.MeshBasicMaterial({color:0xA09890,transparent:true,opacity:0.3})
 );
 orbitGroup.add(orbitRing1);
 
 var orbitRing2=new THREE.Mesh(
-  new THREE.TorusGeometry(2.0,0.006,6,80),
-  new THREE.MeshBasicMaterial({color:0xBAB2AA,transparent:true,opacity:0.18})
+  new THREE.TorusGeometry(2.4,0.008,6,80),
+  new THREE.MeshBasicMaterial({color:0xAAA29A,transparent:true,opacity:0.22})
 );
 orbitGroup.add(orbitRing2);
 
 var orbitRing3=new THREE.Mesh(
-  new THREE.TorusGeometry(2.4,0.005,6,90),
-  new THREE.MeshBasicMaterial({color:0xC0B8B0,transparent:true,opacity:0.12})
+  new THREE.TorusGeometry(2.9,0.006,6,90),
+  new THREE.MeshBasicMaterial({color:0xB5ADA5,transparent:true,opacity:0.15})
 );
 orbitGroup.add(orbitRing3);
 
@@ -1162,12 +1180,12 @@ function animateSculpture(){
   sculpture.rotation.x+=(ty-sculpture.rotation.x)*0.04;
 
   core.rotation.x=t*0.15;core.rotation.y=t*0.2;
-  orb1.position.set(Math.cos(t*0.7)*1.3,Math.sin(t*0.5)*0.3,Math.sin(t*0.7)*0.2+0.2);
-  orb2.position.set(Math.sin(t*0.6)*1.1,Math.cos(t*0.4)*0.4,Math.cos(t*0.6)*0.3+0.3);
-  orb3.position.set(Math.cos(t*0.5+1.0)*0.5,Math.sin(t*0.8+2.0)*1.2,Math.sin(t*0.5)*0.2-0.2);
-  orb4.position.set(Math.sin(t*0.9+3.0)*0.7,Math.cos(t*0.6+1.0)*0.9,Math.cos(t*0.9)*0.1+0.1);
-  orb5.position.set(Math.cos(t*0.4+5.0)*1.0,Math.sin(t*0.7+3.0)*0.2,Math.sin(t*0.4+5.0)*0.5-0.5);
-  orb6.position.set(Math.sin(t*0.3+2.0)*0.3,Math.cos(t*0.5+4.0)*1.1,Math.cos(t*0.3+2.0)*0.4+0.4);
+  orb1.position.set(Math.cos(t*0.7)*1.6,Math.sin(t*0.5)*0.4,Math.sin(t*0.7)*0.3+0.3);
+  orb2.position.set(Math.sin(t*0.6)*1.4,Math.cos(t*0.4)*0.5,Math.cos(t*0.6)*0.4+0.4);
+  orb3.position.set(Math.cos(t*0.5+1.0)*0.6,Math.sin(t*0.8+2.0)*1.5,Math.sin(t*0.5)*0.3-0.3);
+  orb4.position.set(Math.sin(t*0.9+3.0)*0.9,Math.cos(t*0.6+1.0)*1.1,Math.cos(t*0.9)*0.2+0.2);
+  orb5.position.set(Math.cos(t*0.4+5.0)*1.3,Math.sin(t*0.7+3.0)*0.3,Math.sin(t*0.4+5.0)*0.6-0.6);
+  orb6.position.set(Math.sin(t*0.3+2.0)*0.4,Math.cos(t*0.5+4.0)*1.4,Math.cos(t*0.3+2.0)*0.5+0.5);
 
   orb1.rotation.x=t*0.8;orb1.rotation.z=t*0.6;
   orb2.rotation.y=t*0.7;orb2.rotation.z=t*0.5;
