@@ -942,7 +942,6 @@ if(heroEl)heroEl.addEventListener('mouseleave',function(){mActive*=0.3;});
 var sDepth=0;
 
 var portalVS=[
-  'attribute vec3 position;',
   'varying vec2 vUv;',
   'void main(){',
   '  vUv = position.xy * 0.5 + 0.5;',
@@ -956,6 +955,7 @@ var portalFS=[
   'uniform vec2 uMouse;',
   'uniform float uScroll;',
   'uniform vec2 uRes;',
+  'uniform float mActive;',
   'varying vec2 vUv;',
   '',
   'void main(){',
@@ -1021,6 +1021,7 @@ var portalMat=new THREE.ShaderMaterial({
     uMouse:{value:new THREE.Vector2(0,0)},
     uScroll:{value:0},
     uRes:{value:new THREE.Vector2(W,H)},
+    mActive:{value:0},
   },
   vertexShader:portalVS,
   fragmentShader:portalFS
@@ -1092,6 +1093,7 @@ function animateGateway(){
   portalMat.uniforms.uMouse.value.set(mX,mY);
   portalMat.uniforms.uScroll.value=sDepth;
   portalMat.uniforms.uRes.value.set(W,H);
+  portalMat.uniforms.mActive.value=mActive;
 
   dustMat.uniforms.uTime.value=t;
   dustMat.uniforms.uScroll.value=sDepth;
